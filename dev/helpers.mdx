@@ -1,0 +1,464 @@
+---
+title: "Helpers"
+description: "self.helpers gives every BBOT module access to a rich set of utilities for web requests, DNS resolution, subprocess execution, wordlists, and more."
+---
+
+## Overview
+
+`self.helpers` is a `ConfigAwareHelper` instance available on every module and on the scan object itself (`scan.helpers`). It bundles web, DNS, command, and miscellaneous helpers into a single namespace.
+
+```python
+class MyModule(BaseModule):
+    async def handle_event(self, event):
+        # Web request
+        response = await self.helpers.request("https://evilcorp.com")
+
+        # DNS resolution
+        ips = await self.helpers.dns.resolve("evilcorp.com")
+
+        # Shell command
+        result = await self.run_process("nmap", "-p", "80,443", event.data)
+
+        # Domain parsing
+        subdomain, domain = self.helpers.split_domain("www.internal.evilcorp.co.uk")
+        # ("www.internal", "evilcorp.co.uk")
+```
+
+<Note>
+  Inside a module, use `self.run_process()` and `self.run_process_live()` instead of `self.helpers.run()` directly. The module wrappers track subprocesses so they can be gracefully terminated when a module is killed.
+</Note>
+
+## Web helpers
+
+Web helpers are accessible via `self.helpers` directly (they are proxied from `self.helpers.web`).
+
+### `helpers.request(url, **kwargs)`
+
+```python
+async def request(
+    url: str,
+    method: str = "GET",
+    headers: dict = None,
+    params: dict = None,
+    cookies: dict = None,
+    json: Any = None,
+    data: dict = None,
+    files: dict = None,
+    auth: tuple = None,
+    timeout: float = None,
+    proxy: str = None,
+    allow_redirects: bool = None,
+    stream: bool = None,
+    raise_error: bool = False,
+    client: httpx.AsyncClient = None,
+) -> httpx.Response | None
+```
+
+Make an HTTP request. Automatically respects the scan's global timeout, proxy, user-agent, and custom headers. Returns `None` on failure unless `raise_error=True`.
+
+```python
+# Simple GET
+response = await self.helpers.request("https://evilcorp.com")
+if response and response.status_code == 200:
+    print(response.text)
+
+# POST with JSON body
+response = await self.helpers.request(
+    "https://api.evilcorp.com/users",
+    method="POST",
+    json={"name": "test"},
+    headers={"X-Custom-Header": "value"},
+)
+
+# Stream a large response
+async with self.helpers.request("https://evilcorp.com/large-file", stream=True) as r:
+    async for chunk in r.aiter_bytes():
+        process(chunk)
+```
+
+---
+
+### `helpers.request_batch(urls, **kwargs)`
+
+```python
+async def request_batch(urls: list[str], **kwargs) -> AsyncGenerator[tuple[str, httpx.Response], None]
+```
+
+Request a list of URLs in parallel and yield `(url, response)` pairs as they complete.
+
+```python
+urls = ["https://evilcorp.com", "https://othercorp.com", "https://example.com"]
+async for url, response in self.helpers.request_batch(urls):
+    if response and response.status_code == 200:
+        self.hugesuccess(f"{url} is live")
+```
+
+---
+
+### `helpers.download(url, **kwargs)`
+
+```python
+async def download(url: str, **kwargs) -> Path | None
+```
+
+Download a file and return its local `Path`. Files are cached by default.
+
+```python
+filepath = await self.helpers.download("https://evilcorp.com/wordlist.txt")
+for word in self.helpers.read_file(filepath):
+    print(word)
+```
+
+---
+
+### `helpers.wordlist(url, **kwargs)`
+
+```python
+async def wordlist(url: str, **kwargs) -> Path
+```
+
+Download and cache a wordlist (cached for 30 days by default). Raises `WordlistError` on failure.
+
+```python
+async def setup(self):
+    try:
+        self.wordlist_path = await self.helpers.wordlist(
+            "https://raw.githubusercontent.com/user/repo/main/wordlist.txt"
+        )
+    except WordlistError as e:
+        return False, f"Failed to download wordlist: {e}"
+    return True
+```
+
+---
+
+### `helpers.http_compare(url, **kwargs)`
+
+```python
+def http_compare(url, **kwargs) -> HttpCompare
+```
+
+Create an `HttpCompare` object for baseline-comparison HTTP testing (used by differential testing modules like `paramminer`).
+
+## DNS helpers
+
+DNS helpers are on `self.helpers.dns`. Many methods are also proxied to `self.helpers` directly.
+
+### `helpers.dns.resolve(query, **kwargs)`
+
+```python
+async def resolve(query: str, **kwargs) -> set[str]
+```
+
+Resolve a hostname or IP address. Returns a set of IP addresses (for forward lookups) or hostnames (for reverse lookups).
+
+```python
+ips = await self.helpers.dns.resolve("evilcorp.com")
+# {"93.184.216.34"}
+
+hostnames = await self.helpers.dns.resolve("93.184.216.34")
+# {"evilcorp.com"}
+
+# Resolve a specific record type
+mx_records = await self.helpers.dns.resolve("evilcorp.com", type="MX")
+```
+
+---
+
+### `helpers.dns.resolve_raw(query, **kwargs)`
+
+```python
+async def resolve_raw(query: str, **kwargs) -> list[tuple[str, list]]
+```
+
+Perform a raw DNS query and return records grouped by type. Useful when you need the full DNS response.
+
+```python
+records = await self.helpers.dns.resolve_raw("evilcorp.com", type="A")
+```
+
+---
+
+### `helpers.dns.resolve_batch(queries, **kwargs)`
+
+```python
+async def resolve_batch(queries: list[str], **kwargs) -> AsyncGenerator[tuple[str, set[str]], None]
+```
+
+Resolve multiple hostnames in parallel, yielding `(query, results)` as each resolves.
+
+```python
+queries = ["evilcorp.com", "othercorp.com", "example.com"]
+async for query, ips in self.helpers.dns.resolve_batch(queries):
+    for ip in ips:
+        await self.emit_event(ip, parent=event)
+```
+
+---
+
+### `helpers.dns.is_wildcard(query, rdtypes, raw_dns_records=None)`
+
+```python
+async def is_wildcard(query: str, rdtypes: list, raw_dns_records=None) -> dict
+```
+
+Check whether a hostname is a wildcard DNS entry. Returns a dict mapping record types to `(is_wildcard: bool, wildcard_parent: str)` tuples.
+
+```python
+result = await self.helpers.dns.is_wildcard(
+    "www.github.io",
+    rdtypes=["A", "AAAA"],
+)
+# {"A": (True, "github.io"), "AAAA": (True, "github.io")}
+```
+
+---
+
+### `helpers.dns.is_wildcard_domain(domain, **kwargs)`
+
+```python
+async def is_wildcard_domain(domain: str, **kwargs) -> dict
+```
+
+Check whether a domain uses wildcard DNS. Different from `is_wildcard()`, which checks a specific host.
+
+## Miscellaneous helpers
+
+These functions are available directly on `self.helpers` (proxied from the `misc` module).
+
+### Domain and IP utilities
+
+```python
+# Check if something is a domain (no subdomain)
+self.helpers.is_domain("evilcorp.com")        # True
+self.helpers.is_domain("www.evilcorp.com")    # False
+
+# Check if something is a subdomain
+self.helpers.is_subdomain("www.evilcorp.com") # True
+
+# Check if something is an IP address
+self.helpers.is_ip("1.2.3.4")               # True
+self.helpers.is_ip("evilcorp.com")           # False
+
+# Check if something is a valid DNS name
+self.helpers.is_dns_name("evilcorp.com")     # True
+
+# Split into (subdomain, registered_domain)
+self.helpers.split_domain("www.internal.evilcorp.co.uk")
+# ("www.internal", "evilcorp.co.uk")
+
+# Remove TLD suffix
+self.helpers.domain_stem("www.evilcorp.com")
+# "www.evilcorp"
+
+# Create a BaseTarget for ad-hoc scope checks
+target = self.helpers.make_target("evilcorp.com", "1.2.3.0/24")
+print(target.in_scope("www.evilcorp.com"))   # True
+```
+
+### String utilities
+
+```python
+# Random alphanumeric string (default length 10)
+self.helpers.rand_string()       # "c4hp4i9jzx"
+self.helpers.rand_string(20)     # "ap4rsdtg5iw7ey7y3oa5"
+self.helpers.rand_string(30, digits=False)   # "xdmyxtglqfzqktngkesyulwbfrihva"
+self.helpers.rand_string(15, numeric_only=True) # "934857349857395"
+
+# SHA-1 hash
+self.helpers.sha1("evilcorp.com").hexdigest()
+```
+
+### Word extraction
+
+```python
+# Extract meaningful words from a domain name or string
+words = self.helpers.extract_words("www-internal-api-v2.evilcorp.com")
+# {"www", "internal", "api", "v2", "evilcorp"}
+```
+
+## Command helpers
+
+Run shell commands from within a module.
+
+<Note>
+  Always use `self.run_process()` and `self.run_process_live()` in modules. These are light wrappers around `self.helpers.run()` that register the subprocess under the module for graceful shutdown.
+</Note>
+
+### `self.run_process(*command, **kwargs)`
+
+```python
+async def run_process(
+    *command,
+    check: bool = False,
+    text: bool = True,
+    idle_timeout: int = None,
+    **kwargs,
+) -> subprocess.CompletedProcess
+```
+
+Run a subprocess and wait for it to finish. Returns a `CompletedProcess` with `.stdout`, `.stderr`, and `.returncode`.
+
+```python
+result = await self.run_process("nmap", "-p", "80,443", event.data)
+for line in result.stdout.splitlines():
+    if "open" in line:
+        self.info(line)
+```
+
+Pass a list as `input` to write to stdin:
+
+```python
+result = await self.run_process(
+    "grep", "-F", "evilcorp",
+    input=["evilcorp.com", "othercorp.com", "www.evilcorp.com"],
+)
+```
+
+---
+
+### `self.run_process_live(*command, **kwargs)`
+
+```python
+async def run_process_live(
+    *command,
+    check: bool = False,
+    text: bool = True,
+    idle_timeout: int = None,
+    **kwargs,
+) -> AsyncGenerator[str, None]
+```
+
+Run a subprocess and iterate over its stdout line by line in real time.
+
+```python
+async for line in self.run_process_live(["masscan", "--rate=5000", event.data]):
+    if "open" in line:
+        port = line.split()[2]
+        host = f"{event.data}:{port}"
+        await self.emit_event(host, parent=event)
+```
+
+## Word cloud helpers
+
+The word cloud is a target-specific dictionary of words extracted from discovered hostnames, URLs, and other data. Use it to generate custom wordlists for brute-forcing.
+
+### `self.helpers.word_cloud`
+
+A `WordCloud` instance (a `dict` subclass) that accumulates words throughout the scan. Access it as `self.helpers.word_cloud`.
+
+```python
+# Print the current word cloud
+print(self.helpers.word_cloud)
+# {"evilcorp": 5, "www": 3, "api": 2, "internal": 1, ...}
+```
+
+### `helpers.word_cloud.mutations(words, **kwargs)`
+
+```python
+def mutations(
+    words,
+    devops: bool = True,
+    cloud: bool = True,
+    letters: bool = True,
+    numbers: int = 5,
+    number_padding: int = 2,
+    substitute_numbers: bool = True,
+) -> Generator[tuple[str, ...], None, None]
+```
+
+Generate mutations for a list of words. Each yielded item is a tuple of strings; join them on your preferred delimiter.
+
+```python
+async def finish(self):
+    # Build a brute-force list using the word cloud
+    for parts in self.helpers.word_cloud.mutations(["api", "internal"], cloud=True):
+        subdomain = "-".join(parts)
+        await self.emit_event(f"{subdomain}.evilcorp.com", parent=self.scan.root_event)
+```
+
+### `helpers.word_cloud.dns_mutator.mutations(word)`
+
+```python
+def mutations(word: str) -> list[str]
+```
+
+Generate DNS-specific mutations for a single word using patterns derived from observed hostnames.
+
+```python
+mutations = self.helpers.word_cloud.dns_mutator.mutations("api")
+# ["api", "api-test", "api1", "apitest", "www-api", "wwwapi", ...]
+```
+
+## Interactsh helper
+
+BBOT includes a built-in [interact.sh](https://github.com/projectdiscovery/interactsh) client for detecting out-of-band interactions — useful for blind SSRF, blind XSS, and similar vulnerabilities.
+
+### `helpers.interactsh()`
+
+```python
+def interactsh(**kwargs) -> Interactsh
+```
+
+Create an `Interactsh` client. The client is not registered until you call `await client.register()`.
+
+```python
+async def handle_event(self, event):
+    # Instantiate the client
+    client = self.helpers.interactsh()
+
+    # Register with an interact.sh server and get a unique domain
+    domain = await client.register()
+    # e.g. "rg99x2f860h5466ou3so86i07n1m3013k.oast.me"
+
+    # Use the domain in a payload
+    await self.helpers.request(
+        f"https://evilcorp.com/redirect?url=https://{domain}/"
+    )
+
+    # Wait for an out-of-band interaction
+    await asyncio.sleep(10)
+    interactions = await client.poll()
+    for interaction in interactions:
+        await self.emit_event(
+            {
+                "host": str(event.host),
+                "severity": "HIGH",
+                "description": f"SSRF via interact.sh: {interaction}",
+            },
+            "VULNERABILITY",
+            parent=event,
+        )
+
+    # Clean up
+    await client.deregister()
+```
+
+The `poll()` method returns a list of interaction dictionaries:
+
+```json
+[
+  {
+    "protocol": "http",
+    "unique-id": "rg99x2f860h5466ou3so86i07n1m3013k",
+    "raw-request": "GET / HTTP/1.1 ...",
+    "remote-address": "1.2.3.4",
+    "timestamp": "2023-09-15T21:09:24.155677967Z"
+  }
+]
+```
+
+## Attribute quick reference
+
+| Attribute | Type | Description |
+|---|---|---|
+| `self.helpers.dns` | `DNSHelper` | DNS resolution, wildcard detection. |
+| `self.helpers.web` | `WebHelper` | HTTP requests, file download, wordlists. |
+| `self.helpers.word_cloud` | `WordCloud` | Target-specific keyword dictionary. |
+| `self.helpers.re` | `RegexHelper` | Pre-compiled regexes and regex helpers. |
+| `self.helpers.yara` | `YaraHelper` | YARA rule compilation and matching. |
+| `self.helpers.depsinstaller` | `DepsInstaller` | Ansible-based dependency installer. |
+| `self.helpers.temp_dir` | `Path` | Temporary directory for the current scan. |
+| `self.helpers.cache_dir` | `Path` | Persistent cache directory. |
+| `self.helpers.tools_dir` | `Path` | Directory for compiled binary tools. |
+| `self.helpers.wordlist_dir` | `Path` | Directory for built-in BBOT wordlists. |

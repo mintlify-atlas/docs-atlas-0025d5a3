@@ -1,0 +1,119 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "BBOT",
+  "projectDescription": "A recursive, event-driven internet scanner built for hackers to automate recon, bug bounties, and attack surface management.",
+  "theme": "aspen",
+  "primaryColor": "#8c8c8c",
+  "lightColor": "#202020",
+  "darkColor": "#d6d6d6",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "User Manual",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "how-it-works",
+              "comparison"
+            ]
+          },
+          {
+            "group": "Scanning",
+            "pages": [
+              "scanning/overview",
+              "scanning/presets",
+              "scanning/output",
+              "scanning/configuration",
+              "scanning/advanced"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "modules/list-of-modules",
+              "modules/nuclei",
+              "modules/lightfuzz",
+              "modules/custom-yara-rules"
+            ]
+          },
+          {
+            "group": "Help",
+            "pages": [
+              "troubleshooting",
+              "contribution"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "dev/index",
+              "dev/architecture",
+              "dev/dev-environment"
+            ]
+          },
+          {
+            "group": "Building Modules",
+            "pages": [
+              "dev/module-howto",
+              "dev/tests",
+              "dev/discord-bot"
+            ]
+          },
+          {
+            "group": "API Reference",
+            "pages": [
+              "dev/scanner",
+              "dev/preset",
+              "dev/event",
+              "dev/target",
+              "dev/basemodule",
+              "dev/helpers"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Recursive, event-driven scan engine that discovers data exponentially across modules",
+    "100+ built-in modules for subdomain enumeration, web scanning, OSINT, and more",
+    "Preset system for combining modules into reusable scan profiles (subdomain-enum, web-thorough, kitchen-sink, etc.)",
+    "Python API for programmatic scanner control (sync and async)",
+    "Native output to Neo4j, Postgres, MySQL, SQLite, Elasticsearch, CSV, JSON, Slack, Discord, Teams, and more",
+    "NLP-powered subdomain mutation brute-forcing",
+    "Automatic dependency installation via Ansible",
+    "YARA rule support for custom detection across the entire attack surface",
+    "Docker support for containerized scanning",
+    "Flexible target types: domains, IPs, CIDR ranges, URLs, emails, GitHub orgs, and mobile apps"
+  ],
+  "publicApiSurface": [
+    "bbot (CLI command)",
+    "Scanner class (bbot.scanner.Scanner)",
+    "Scanner.start() — synchronous scan iterator",
+    "Scanner.async_start() — async scan iterator",
+    "Scanner.start_without_generator()",
+    "Scanner.async_start_without_generator()",
+    "Preset class (bbot.scanner.preset.Preset)",
+    "BaseModule class (bbot.modules.base.BaseModule)",
+    "BaseModule.handle_event(event)",
+    "BaseModule.handle_batch(events)",
+    "BaseModule.setup()",
+    "BaseModule.finish()",
+    "Event class (bbot.core.event)",
+    "Target class (bbot.scanner.target.Target)",
+    "-t / --targets (CLI flag)",
+    "-m / --modules (CLI flag)",
+    "-f / --flags (CLI flag)",
+    "-p / --preset (CLI flag)",
+    "-om / --output-modules (CLI flag)",
+    "-c / --config (CLI flag)"
+  ]
+}

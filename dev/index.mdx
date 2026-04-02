@@ -1,0 +1,140 @@
+---
+title: "Developer Reference"
+description: "Use BBOT's Python API to embed recursive internet scanning directly in your applications."
+---
+
+BBOT exposes a Python API that lets you create, start, and control scans programmatically. You can consume events synchronously or asynchronously, pass multiple targets, and configure every aspect of a scan — all from Python.
+
+## Adding BBOT to your project
+
+<CodeGroup>
+
+```bash poetry
+# stable release
+poetry add bbot
+
+# bleeding-edge (dev branch)
+poetry add bbot --allow-prereleases
+```
+
+```bash pip
+pip install bbot
+```
+
+</CodeGroup>
+
+## Running a scan from Python
+
+### Synchronous scan
+
+```python
+from bbot.scanner import Scanner
+
+if __name__ == "__main__":
+    scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+    for event in scan.start():
+        print(event)
+```
+
+### Asynchronous scan
+
+```python
+import asyncio
+from bbot.scanner import Scanner
+
+async def main():
+    scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+    async for event in scan.async_start():
+        print(event.json())
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+<Note>
+  Use `scan.start()` for synchronous contexts and `scan.async_start()` when
+  running inside an existing event loop (e.g., FastAPI, Jupyter, or your own
+  async application).
+</Note>
+
+## Multiple targets
+
+Pass any number of targets as positional arguments. BBOT accepts domains, IPs, CIDR ranges, URLs, emails, and more.
+
+```python
+from bbot.scanner import Scanner
+
+# Explicit positional arguments
+scan = Scanner(
+    "evilcorp.com",
+    "evilcorp.org",
+    "evilcorp.ce",
+    "4.3.2.1",
+    "1.2.3.4/24",
+    presets=["subdomain-enum"],
+)
+
+# Or unpack a list
+targets = ["evilcorp.com", "evilcorp.org", "evilcorp.ce", "4.3.2.1", "1.2.3.4/24"]
+scan = Scanner(*targets, presets=["subdomain-enum"])
+```
+
+## Custom options
+
+In many cases a [preset](/scanning/presets) like `subdomain-enum` is sufficient. When you need finer control, `Scanner` accepts flags, modules, whitelists, blacklists, and arbitrary config overrides:
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner(
+    # targets
+    "evilcorp.com",
+    "4.3.2.1",
+    # enable a preset
+    presets=["subdomain-enum"],
+    # restrict results to these hosts
+    whitelist=["evilcorp.com", "evilcorp.org"],
+    # never touch these hosts
+    blacklist=["prod.evilcorp.com"],
+    # add individual modules on top of the preset
+    modules=["nuclei", "ipstack"],
+    # skip modules tagged as slow
+    exclude_flags=["slow"],
+    # module-level config overrides
+    config={
+        "modules": {
+            "nuclei": {
+                "tags": "apache,nginx"
+            }
+        }
+    },
+)
+
+for event in scan.start():
+    print(event)
+```
+
+<Tip>
+  All keyword arguments accepted by `Scanner` are also accepted by `Preset`.
+  See the [Preset reference](/dev/scanner) for the complete list.
+</Tip>
+
+## Developer reference
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="network-wired" href="/dev/architecture">
+    How BBOT's event-driven engine, multiprocessing model, and ZMQ message passing work internally.
+  </Card>
+  <Card title="Dev environment" icon="terminal" href="/dev/dev-environment">
+    Set up a local development environment, run tests, and contribute to BBOT.
+  </Card>
+  <Card title="Write a module" icon="wrench" href="/dev/module-howto">
+    Step-by-step guide to building a custom BBOT module from scratch.
+  </Card>
+  <Card title="Scanner reference" icon="code" href="/dev/scanner">
+    Full `Scanner` class reference — attributes, methods, and lifecycle hooks.
+  </Card>
+  <Card title="BaseModule reference" icon="cube" href="/dev/basemodule">
+    Every attribute, hook, and helper available inside a custom module.
+  </Card>
+</CardGroup>

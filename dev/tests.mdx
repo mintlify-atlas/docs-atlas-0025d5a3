@@ -1,0 +1,181 @@
+---
+title: "Unit Tests"
+description: "How to write and run tests for your BBOT modules using pytest."
+---
+
+BBOT takes testing seriously. Every module **must** have a custom-written test that actually exercises its functionality. If you open a draft pull request, the team will help you write them.
+
+BBOT uses [ruff](https://docs.astral.sh/ruff/) for linting and [pytest](https://docs.pytest.org/) for tests.
+
+## Running tests locally
+
+GitHub Actions runs the full test suite automatically on every pull request. You can also run tests locally:
+
+```bash
+# lint with ruff
+poetry run ruff check
+
+# format code with ruff
+poetry run ruff format
+
+# run all tests (takes roughly 30 minutes)
+poetry run pytest
+```
+
+### Run a specific test
+
+Use the `-k` flag to select tests by name:
+
+```bash
+# run only the sslcert module test
+poetry run pytest -k test_module_sslcert
+
+# run all module tests except sslcert
+poetry run pytest -k "test_module_ and not test_module_sslcert"
+```
+
+### See log output
+
+Pass `--log-cli-level` to print log messages during the test run:
+
+```bash
+poetry run pytest --log-cli-level=DEBUG
+```
+
+## How BBOT tests work
+
+Each module test is a class that inherits from `ModuleTestBase`. The framework:
+
+1. Spins up a mock scan with your chosen targets and config.
+2. Calls your `setup_after_prep()` method so you can register mock HTTP responses and DNS records.
+3. Runs the scan.
+4. Calls your `check()` method with the full list of emitted events for you to assert against.
+
+The scan never touches the real internet — all HTTP and DNS calls are intercepted by the test harness.
+
+## Write a module test
+
+Create a new Python file in `bbot/test/test_step_2/module_tests/`. The filename must follow the pattern `test_module_<module_name>.py`.
+
+```python title="bbot/test/test_step_2/module_tests/test_module_mymodule.py"
+from .base import ModuleTestBase
+
+
+class TestMyModule(ModuleTestBase):
+    targets = ["blacklanternsecurity.com"]
+    config_overrides = {"modules": {"mymodule": {"api_key": "deadbeef"}}}
+
+    async def setup_after_prep(self, module_test):
+        # Register a mock HTTP response
+        module_test.httpx_mock.add_response(
+            url="https://api.com/subdomains?apikey=deadbeef&domain=blacklanternsecurity.com",
+            json={
+                "subdomains": [
+                    "www.blacklanternsecurity.com",
+                    "dev.blacklanternsecurity.com",
+                ],
+            },
+        )
+        # Register mock DNS records
+        await module_test.mock_dns(
+            {
+                "blacklanternsecurity.com": {"A": ["1.2.3.4"]},
+                "www.blacklanternsecurity.com": {"A": ["1.2.3.4"]},
+                "dev.blacklanternsecurity.com": {"A": ["1.2.3.4"]},
+            }
+        )
+
+    def check(self, module_test, events):
+        dns_names = [e.data for e in events if e.type == "DNS_NAME"]
+        assert "www.blacklanternsecurity.com" in dns_names, "failed to find subdomain #1"
+        assert "dev.blacklanternsecurity.com" in dns_names, "failed to find subdomain #2"
+```
+
+### Test class attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `targets` | List of scan targets, same as `-t` on the CLI |
+| `config_overrides` | Dict merged into the scan config (use for API keys, flags, etc.) |
+| `modules_overrides` | Override which modules are enabled for the test |
+
+### setup_after_prep()
+
+Use `setup_after_prep()` to register mock HTTP responses and DNS records before the scan starts.
+
+**Mock an HTTP response:**
+
+```python
+module_test.httpx_mock.add_response(
+    url="https://api.example.com/query",
+    json={"results": ["sub.example.com"]},
+)
+```
+
+**Mock DNS:**
+
+```python
+await module_test.mock_dns(
+    {
+        "example.com": {"A": ["1.2.3.4"], "MX": ["mail.example.com"]},
+        "sub.example.com": {"A": ["1.2.3.4"]},
+    }
+)
+```
+
+### check()
+
+`check()` receives the `module_test` object and a list of **all events** emitted during the scan. Assert that your module produced the expected output:
+
+```python
+def check(self, module_test, events):
+    dns_names = [e.data for e in events if e.type == "DNS_NAME"]
+    assert "sub.example.com" in dns_names
+
+    urls = [e.data for e in events if e.type == "URL"]
+    assert any("admin" in u for u in urls), "expected an admin URL"
+```
+
+## Debugging a test
+
+You can use any of BBOT's log level helpers from inside `check()`. They map to the same colors as the module logging methods:
+
+```python
+def check(self, module_test, events):
+    for e in events:
+        self.log.critical(e.type)      # bright red — always visible
+        self.log.hugesuccess(e.data)   # bright green
+        self.log.hugewarning(e.tags)   # bright orange
+        self.log.hugeinfo(e.parent)    # bright blue
+```
+
+<Tip>
+Use `self.log.critical()` as a quick way to print values during debugging — it always appears regardless of the log level.
+</Tip>
+
+## CI/CD integration
+
+BBOT's GitHub Actions workflow runs on every pull request:
+
+- **Linting** — `ruff check` enforces code style.
+- **Formatting** — `ruff format` checks consistent formatting.
+- **Tests** — `pytest` runs the full module test suite.
+
+All three must pass before a PR can be merged. If you are contributing a new module, include its test file in the same PR.
+
+## More resources
+
+<CardGroup cols={2}>
+  <Card title="Existing tests" icon="magnifying-glass" href="https://github.com/blacklanternsecurity/bbot/tree/stable/bbot/test/test_step_2/module_tests">
+    Browse over a hundred real module tests for reference.
+  </Card>
+  <Card title="GitHub Discussions" icon="github" href="https://github.com/blacklanternsecurity/bbot/discussions">
+    Ask the team for help writing advanced tests.
+  </Card>
+  <Card title="Discord" icon="discord" href="https://discord.com/invite/PZqkgxu5SA">
+    Chat with the community in real time.
+  </Card>
+  <Card title="Writing modules" icon="code" href="/dev/module-howto">
+    Learn how to write a BBOT module from scratch.
+  </Card>
+</CardGroup>

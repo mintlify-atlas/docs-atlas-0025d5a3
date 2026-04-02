@@ -1,0 +1,65 @@
+---
+title: "Comparison to other tools"
+description: "How BBOT stacks up against Amass, Subfinder, Spiderfoot, theHarvester, and other recon tools."
+---
+
+BBOT does a lot more than subdomain enumeration. But subdomain enumeration is arguably the most important part of OSINT recon — and since there are so many subdomain enumeration tools, they're the most useful class of tool to compare against.
+
+## Subdomains found
+
+Thanks to BBOT's recursive, event-driven architecture and its `dnsbrute_mutations` module with NLP-powered subdomain mutations, BBOT typically finds **20–25% more subdomains** than tools like Amass or theHarvester. The advantage grows with target size — for large domains with 1,000+ subdomains, the difference is even more pronounced.
+
+For a detailed analysis, see [Subdomain Enumeration Tool Face-Off](https://blog.blacklanternsecurity.com/p/subdomain-enumeration-tool-face-off-4e5).
+
+## Runtime comparison
+
+BBOT also tends to finish faster than comparable tools. In benchmarks against `delta.com`, Amass failed to finish within 24 hours and had to be cancelled. Spiderfoot crashed after ~20 minutes due to excessive memory usage.
+
+<Info>
+  All other tools in the benchmark finished successfully. BBOT completed its scan and found the most subdomains.
+</Info>
+
+## Feature comparison
+
+| Feature | BBOT | Amass | Subfinder | Spiderfoot | theHarvester |
+|---|---|---|---|---|---|
+| Subdomain enumeration | Yes | Yes | Yes | Yes | Yes |
+| Recursive discovery | Yes | Partial | No | Yes | No |
+| NLP subdomain mutations | Yes | No | No | No | No |
+| Port scanning | Yes | No | No | Yes | No |
+| Web crawling / spidering | Yes | No | No | Yes | No |
+| Web vulnerability scanning | Yes | No | No | No | No |
+| Email harvesting | Yes | No | No | Yes | Yes |
+| Cloud asset enumeration | Yes | No | No | Partial | No |
+| Screenshot capture | Yes | No | No | No | No |
+| YARA rule scanning | Yes | No | No | No | No |
+| Neo4j / graph output | Yes | Yes | No | No | No |
+| Slack / Discord / Teams output | Yes | No | No | No | No |
+| Python library API | Yes | No | No | No | No |
+| Active under development | Yes | Yes | Yes | Yes | Slow |
+| Open source license | AGPL-3.0 | Apache-2.0 | MIT | MIT | GPL-3.0 |
+
+## Why BBOT finds more
+
+The key difference is **recursion**. Most tools make a single pass: they query a list of APIs, brute-force a wordlist, and stop. BBOT keeps going.
+
+When BBOT finds a new subdomain via a passive API, it immediately:
+
+- Resolves the DNS record to get IP addresses
+- Port-scans those IPs to find open services
+- Reads TLS certificates on those ports to find more hostnames
+- Feeds those new hostnames back into the subdomain brute-forcer
+- Generates NLP-based mutations from every discovered subdomain
+
+This recursive loop means that each discovery potentially unlocks dozens more. No single-pass tool can replicate that behavior.
+
+## When to use other tools
+
+BBOT is not always the right choice:
+
+- **Subfinder** is faster and simpler for a quick passive-only subdomain lookup when you don't need active scanning.
+- **Amass** has a mature graph database integration and strong community support for passive enumeration workflows.
+- **theHarvester** is lightweight and works well for a fast OSINT snapshot without installing a larger toolchain.
+- **Spiderfoot** has a web UI that some users prefer for visualizing results interactively.
+
+BBOT is the right choice when you want the **most comprehensive, automated, recursive** scan possible — especially for bug bounties, ASM programs, and engagements where thoroughness matters more than simplicity.

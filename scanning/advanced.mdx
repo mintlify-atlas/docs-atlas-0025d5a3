@@ -1,0 +1,414 @@
+---
+title: "Advanced Usage"
+description: "Multiple targets, custom scope, YARA rules, web spidering, Interactsh, headless browsers, Python API, and tips for getting the most out of BBOT."
+---
+
+## Multiple targets and target files
+
+You can pass as many targets as you want on the command line, from a file, or both:
+
+```bash
+# multiple targets on the command line
+bbot -t evilcorp.com fsociety.com 1.2.3.0/24 -f subdomain-enum
+
+# load from a file
+bbot -t targets.txt -f subdomain-enum
+
+# combine file and command-line targets
+bbot -t targets.txt fsociety.com 5.6.7.0/24 -m portscan
+```
+
+Target files accept the same formats as the command line — one entry per line:
+
+```text title="targets.txt"
+evilcorp.com
+evilcorp.co.uk
+1.2.3.0/24
+192.168.0.1:80
+https://www.evilcorp.co.uk
+```
+
+---
+
+## Custom whitelists and blacklists
+
+### Whitelists
+
+Use `--whitelist` to restrict which hosts active modules are allowed to touch. For example, seed the scan from a domain but limit active probing to a specific IP range:
+
+```bash
+# discover subdomains of evilcorp.com, but only actively probe 1.2.3.0/24
+bbot -t evilcorp.com --whitelist 1.2.3.0/24 \
+  -f subdomain-enum -m portscan nuclei --allow-deadly
+```
+
+### Blacklists
+
+`--blacklist` takes ultimate precedence over everything. Blacklisted hosts are completely excluded even if they are in the whitelist or the target list:
+
+```bash
+# exclude internal.evilcorp.com and all its children
+bbot -t evilcorp.com --blacklist internal.evilcorp.com \
+  -f subdomain-enum -m portscan nuclei --allow-deadly
+```
+
+Blacklists also accept regex patterns prefixed with `RE:`. They are checked against the full URL including host and path:
+
+```bash
+# exclude any host or URL containing "signout"
+bbot -t evilcorp.com --blacklist "RE:signout"
+
+# narrow to only URL paths ending in .aspx
+bbot -t evilcorp.com --blacklist 'RE:signout\.aspx$'
+```
+
+You can also put blacklists in a preset:
+
+```yaml title="my_preset.yml"
+blacklist:
+  - internal.evilcorp.com
+  - "RE:/.*(sign|log)[_-]?out"
+```
+
+---
+
+## Scope distance and search distance
+
+BBOT assigns every discovered event a **scope distance** — how many hops it is from your declared targets.
+
+- `scope.report_distance` controls which events are **displayed**. Default is `0` (in-scope only).
+- `scope.search_distance` controls how far BBOT **actively searches** out from scope. Default is `0`. Changing this is advanced usage.
+- `dns.search_distance` controls how far out DNS resolution happens. Default is `1` (safe to increase).
+
+```bash
+# show events up to 2 hops away from the target
+bbot -t evilcorp.com -f subdomain-enum -c scope.report_distance=2
+
+# speed up by only resolving A and AAAA records
+bbot -t evilcorp.com -f subdomain-enum -c dns.minimal=true
+```
+
+---
+
+## Combining presets
+
+You can layer as many presets as you want. Later presets override earlier ones in case of config conflicts:
+
+```bash
+# subdomain enum + web spider + screenshots
+bbot -t evilcorp.com -p subdomain-enum spider web-screenshots
+
+# custom spider config takes priority (loaded last)
+bbot -t evilcorp.com -p subdomain-enum spider ./my_spider.yml
+```
+
+To override a preset value from the command line:
+
+```bash
+# use the spider preset but change the distance
+bbot -t www.evilcorp.com -p spider -c web.spider_distance=10
+```
+
+---
+
+## Web spider
+
+The web spider follows HTTP links discovered during a scan. It's disabled by default (`web.spider_distance=0`).
+
+Three config values control it:
+
+| Option | Default | Description |
+|---|---|---|
+| `web.spider_distance` | `0` | Max links to follow in a row (0 = disabled) |
+| `web.spider_depth` | `1` | Max directory depth to crawl |
+| `web.spider_links_per_page` | `25` | Max links to follow per page |
+
+```yaml title="spider.yml"
+config:
+  web:
+    spider_depth: 2
+    spider_distance: 2
+    spider_links_per_page: 25
+```
+
+```bash
+# spider www.evilcorp.com
+bbot -t www.evilcorp.com -m httpx -c spider.yml
+
+# spider every subdomain discovered during subdomain-enum
+bbot -t evilcorp.com -f subdomain-enum -c spider.yml
+```
+
+Or use the built-in `spider` preset:
+
+```bash
+bbot -t www.evilcorp.com -p spider
+bbot -t www.evilcorp.com -p spider-intense
+```
+
+<Warning>
+The spider can significantly lengthen scan times. Start with `spider_distance=2` and `spider_depth=2` before going higher.
+</Warning>
+
+---
+
+## YARA rules
+
+BBOT's `excavate` internal module can apply custom YARA rules to HTTP responses to find secrets, patterns, or specific strings:
+
+```bash
+# pass custom YARA rules to excavate
+bbot -t evilcorp.com -m httpx --custom-yara-rules /path/to/rules.yar
+```
+
+Or with the short flag:
+
+```bash
+bbot -t evilcorp.com -m httpx -cy /path/to/rules.yar
+```
+
+---
+
+## Headless browser (gowitness)
+
+The `gowitness` module uses a headless Chromium browser to take screenshots of discovered web pages. Enable it directly or via the `web-screenshots` preset:
+
+```bash
+# take screenshots during subdomain enumeration
+bbot -t evilcorp.com -f subdomain-enum -m gowitness
+
+# use the preset
+bbot -t evilcorp.com -p subdomain-enum web-screenshots
+```
+
+Screenshots are saved to the scan folder. Key config options:
+
+```yaml title="my_preset.yml"
+config:
+  modules:
+    gowitness:
+      resolution_x: 1440
+      resolution_y: 900
+      # custom output folder (default: inside scan directory)
+      output_path: /tmp/screenshots
+      # also screenshot social media profiles
+      social: true
+      # path to Chrome binary (auto-detected by default)
+      chrome_path: /usr/bin/chromium
+```
+
+<Tip>
+Pair `gowitness` with `--proxy` to populate a Burp Suite site map for every discovered subdomain:
+
+```bash
+bbot -t evilcorp.com -f subdomain-enum -m gowitness \
+  -c web.http_proxy=http://127.0.0.1:8080
+```
+</Tip>
+
+---
+
+## Interactsh
+
+Interactsh is used by modules like `generic_ssrf` to detect out-of-band interactions (DNS callbacks, HTTP requests, etc.). BBOT uses the public Interactsh server by default.
+
+To use a self-hosted Interactsh server:
+
+```yaml title="~/.config/bbot/bbot.yml"
+interactsh_server: https://your.interactsh.server
+interactsh_token: your_token_here
+```
+
+To disable Interactsh entirely:
+
+```yaml title="~/.config/bbot/bbot.yml"
+interactsh_disable: true
+```
+
+Or on the command line:
+
+```bash
+bbot -t evilcorp.com -m generic_ssrf -c interactsh_server=https://your.interactsh.server
+```
+
+---
+
+## BBOT as a Python library
+
+You can use BBOT programmatically for automation and custom integrations.
+
+<Tabs>
+  <Tab title="Synchronous">
+    ```python
+    from bbot.scanner import Scanner
+
+    if __name__ == "__main__":
+        scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+        for event in scan.start():
+            print(event)
+    ```
+  </Tab>
+  <Tab title="Asynchronous">
+    ```python
+    from bbot.scanner import Scanner
+    import asyncio
+
+    async def main():
+        scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+        async for event in scan.async_start():
+            print(event.json())
+
+    if __name__ == "__main__":
+        asyncio.run(main())
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Tips and tricks
+
+### Change verbosity during a scan
+
+Press **Enter** during an active BBOT scan to cycle through log levels. This lets you enable debug output without restarting the scan.
+
+### Kill a slow module mid-scan
+
+If a module stalls or slows the scan, type `kill <module>` in the terminal and press Enter:
+
+```text
+kill httpx
+kill httpx sslcert
+```
+
+This disables the module for the remainder of the scan without stopping the others.
+
+### Speed up slow modules with threads
+
+Most modules can be parallelized:
+
+```bash
+# increase baddns threads to 20
+bbot -t evilcorp.com -m baddns -c modules.baddns.module_threads=20
+
+# increase sslcert threads to 50
+bbot -t evilcorp.com -m sslcert -c modules.sslcert.module_threads=50
+```
+
+### Boost DNS brute-force speed
+
+If you have a fast connection or are running from a cloud VM, crank up `dns.brute_threads`:
+
+```bash
+# default is 1000 (~1 MB/s of DNS traffic)
+# 5000 = ~5 MB/s
+bbot -t evilcorp.com -f subdomain-enum -c dns.brute_threads=5000
+```
+
+### Disable DNS resolution for known targets
+
+If you already have a list of URLs or hosts and want to skip DNS resolution:
+
+```bash
+# completely disable DNS (WARNING: breaks IP-based whitelists/blacklists)
+bbot -m httpx gowitness -t urls.txt -c dns.disable=true
+
+# only resolve A/AAAA records (safer alternative)
+bbot -m httpx gowitness -t urls.txt -c dns.minimal=true
+```
+
+### Exclude CDN ports from port scans
+
+Use `--exclude-cdn` to filter out ports 80/443 on CDNs and WAFs:
+
+```bash
+bbot -t evilcorp.com -m portscan --exclude-cdn
+
+# customize which CDN tags are filtered
+bbot -t evilcorp.com --exclude-cdn -c modules.portfilter.cdn_tags=cdn,cloud
+
+# allow specific ports even on CDN hosts
+bbot -t evilcorp.com --exclude-cdn -c modules.portfilter.allowed_cdn_ports=80,443,8443
+```
+
+### Display `HTTP_RESPONSE` events
+
+`HTTP_RESPONSE` events contain full raw HTTP bodies and headers. They're hidden by default:
+
+```yaml title="~/.config/bbot/bbot.yml"
+omit_event_types:
+  - URL_UNVERIFIED
+  # - HTTP_RESPONSE  # uncomment to show HTTP responses
+```
+
+### Display out-of-scope events
+
+```bash
+# show events up to 2 hops from the main scope
+bbot -f subdomain-enum -t evilcorp.com -c scope.report_distance=2
+```
+
+### Extract all links from a web page
+
+```bash
+# visit www.evilcorp.com and extract all links (including out-of-scope)
+bbot -t www.evilcorp.com -m httpx \
+  -c omit_event_types=[] scope.report_distance=2
+```
+
+### Ingest BBOT data into a SIEM
+
+Enable SIEM-friendly mode to ensure `.data` is always a consistent dictionary type:
+
+```bash
+bbot -t evilcorp.com -c modules.json.siem_friendly=true
+```
+
+### Use Burp Suite as a proxy
+
+```bash
+# enumerate subdomains and route all HTTP traffic through Burp
+bbot -t evilcorp.com -f subdomain-enum -m gowitness \
+  -c web.http_proxy=http://127.0.0.1:8080
+```
+
+### Custom HTTP headers and cookies
+
+```bash
+# add a custom Authorization header to all requests
+bbot -t evilcorp.com -H "Authorization: Bearer mytoken123"
+
+# add cookies
+bbot -t evilcorp.com -C "session=abc123" "PHPSESSID=xyz"
+```
+
+### Pre-install all dependencies
+
+Useful when provisioning a system for offline use:
+
+```bash
+bbot --install-all-deps
+```
+
+### Fast mode
+
+`--fast-mode` loads the built-in `fast` preset, which restricts the scan to only the exact targets you provide — no extra recursive discovery. Internally it sets `scope.strict=true`, uses minimal DNS (A/AAAA only), and disables `excavate`:
+
+```bash
+bbot -t evilcorp.com -m httpx portscan --fast-mode
+```
+
+This is equivalent to:
+
+```bash
+bbot -t evilcorp.com -m httpx portscan -p fast
+```
+
+### Dry run to preview a scan
+
+Check what BBOT would do without actually running:
+
+```bash
+bbot -t evilcorp.com -f subdomain-enum --dry-run
+bbot -t evilcorp.com -f subdomain-enum --current-preset
+```

@@ -1,0 +1,151 @@
+---
+title: "Setting Up a Dev Environment"
+description: "Clone BBOT, install dependencies with Poetry, run the test suite, and start hacking on modules."
+---
+
+This guide walks you through setting up a fully functioning development environment so you can make changes to BBOT, run tests locally, and submit pull requests.
+
+## Prerequisites
+
+- **Python 3.9 or later** — check with `python3 --version`
+- **git** — for cloning and branching
+- **Poetry** — BBOT's dependency manager (installed in step 2 below)
+
+<Info>
+  Poetry manages BBOT's virtual environment and dependencies. It is the
+  recommended way to work on BBOT locally.
+</Info>
+
+## Setup
+
+<Steps>
+  <Step title="Fork and clone the repo">
+    Fork [blacklanternsecurity/bbot](https://github.com/blacklanternsecurity/bbot) on GitHub, then clone your fork:
+
+    ```bash
+    git clone git@github.com:<your-username>/bbot.git
+    cd bbot
+    ```
+  </Step>
+
+  <Step title="Install Poetry">
+    If you do not already have Poetry installed, run:
+
+    ```bash
+    curl -sSL https://install.python-poetry.org | python3 -
+    ```
+
+    Verify the installation:
+
+    ```bash
+    poetry --version
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install all Python dependencies (including dev dependencies) into a managed virtual environment:
+
+    ```bash
+    poetry install
+    ```
+  </Step>
+
+  <Step title="Install pre-commit hooks">
+    BBOT uses [pre-commit](https://pre-commit.com/) to enforce code style automatically before each commit:
+
+    ```bash
+    poetry run pre-commit install
+    ```
+  </Step>
+
+  <Step title="Enter the virtual environment">
+    Activate the Poetry shell so that `bbot` and all dev tools are on your `PATH`:
+
+    ```bash
+    poetry shell
+    ```
+
+    You should now be able to run:
+
+    ```bash
+    bbot --help
+    ```
+
+    Any code changes you make are immediately reflected — no reinstall needed.
+  </Step>
+</Steps>
+
+## Running tests
+
+Before submitting a pull request, run the full test suite locally to make sure nothing is broken.
+
+### Format your code first
+
+BBOT uses [Ruff](https://docs.astral.sh/ruff/) for formatting. Always run this before committing:
+
+```bash
+ruff format
+```
+
+### Run the test suite
+
+```bash
+./bbot/test/run_tests.sh
+```
+
+This script runs `pytest` with the correct settings for BBOT's test suite, including module integration tests.
+
+<Tip>
+  To run a single test file during development, use pytest directly:
+
+  ```bash
+  pytest bbot/test/test_presets.py -v
+  ```
+</Tip>
+
+<Warning>
+  Some tests make real network requests. Running the full suite in a restricted
+  network environment may cause failures unrelated to your changes.
+</Warning>
+
+## Common dev commands
+
+| Task | Command |
+|---|---|
+| Activate the venv | `poetry shell` |
+| Run BBOT from source | `bbot -t evilcorp.com -p subdomain-enum` |
+| Format code | `ruff format` |
+| Lint code | `ruff check` |
+| Run all tests | `./bbot/test/run_tests.sh` |
+| Run one test file | `pytest bbot/test/<file>.py -v` |
+| Add a dependency | `poetry add <package>` |
+| Update dependencies | `poetry update` |
+| Check pre-commit hooks | `pre-commit run --all-files` |
+
+## Running BBOT from source
+
+Once inside `poetry shell`, the `bbot` command points to your local checkout. You can test changes immediately without reinstalling:
+
+```bash
+# Run a quick subdomain scan against a test target
+bbot -t evilcorp.com -p subdomain-enum
+
+# Enable debug logging to trace event flow
+bbot -t evilcorp.com -p subdomain-enum -d
+
+# Run with a specific module you are developing
+bbot -t evilcorp.com -m my_new_module
+```
+
+## Contributing
+
+After making your changes and verifying that all tests pass:
+
+1. Commit your changes to a feature branch.
+2. Push your branch to your fork.
+3. Open a pull request against the **`dev`** branch of the main BBOT repository.
+
+<Note>
+  Always target the `dev` branch, not `main`. Pull requests against `main`
+  will be redirected.
+</Note>

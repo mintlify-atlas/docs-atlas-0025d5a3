@@ -1,0 +1,421 @@
+---
+title: "Output"
+description: "BBOT saves results in TXT, JSON, and CSV by default. Use output modules to send data to databases, webhooks, and other destinations."
+---
+
+By default, BBOT saves its output in TXT, JSON, and CSV formats. The output is written to a folder named after the scan (e.g., `~/.bbot/scans/demonic_jimmy/`). The filenames are logged at the end of each scan.
+
+You can change the output directory with `-o` and the scan name with `-n`:
+
+```bash
+# save output to ./my_scan/
+bbot -t evilcorp.com -f subdomain-enum -n my_scan -o .
+```
+
+If you reuse a scan name, BBOT appends to the previous output files.
+
+---
+
+## Output modules
+
+Multiple simultaneous output formats are possible because of **output modules**. Enable them with `-om`:
+
+```bash
+# enable JSON and neo4j output in addition to the defaults
+bbot -t evilcorp.com -f subdomain-enum -om json neo4j
+```
+
+To list all available output modules:
+
+```bash
+bbot -lo
+```
+
+---
+
+## Default output modules
+
+### TXT
+
+Tab-delimited text output, easy to `grep`:
+
+```bash
+# grep out only DNS_NAME events
+cat ~/.bbot/scans/extreme_johnny/output.txt | grep '\[DNS_NAME\]' | cut -f2
+evilcorp.com
+www.evilcorp.com
+mail.evilcorp.com
+```
+
+### CSV
+
+The `csv` module produces a spreadsheet-style file with event type, data, IP addresses, source module, scope distance, and tags:
+
+| Event type | Event data | IP Address | Source Module | Scope Distance | Event Tags |
+|---|---|---|---|---|---|
+| `DNS_NAME` | `evilcorp.com` | `1.2.3.4` | `TARGET` | `0` | `a-record,domain,in-scope,target` |
+| `DNS_NAME` | `www.evilcorp.com` | `2.3.4.5` | `certspotter` | `0` | `a-record,in-scope,subdomain` |
+| `URL` | `http://www.evilcorp.com` | `2.3.4.5` | `httpx` | `0` | `a-record,in-scope,subdomain` |
+
+### STDOUT
+
+The `stdout` module is what you see in the terminal during a scan. By default it mirrors the `txt` format, but you can customize it:
+
+| Config option | Type | Description | Default |
+|---|---|---|---|
+| `modules.stdout.format` | str | Output format: `text` or `json` | `text` |
+| `modules.stdout.event_types` | list | Which event types to display (empty = all) | `[]` |
+| `modules.stdout.event_fields` | list | Which event fields to display | `[]` |
+| `modules.stdout.in_scope_only` | bool | Only show in-scope events | `False` |
+| `modules.stdout.accept_dupes` | bool | Show duplicate events | `True` |
+
+---
+
+## JSON output
+
+Enable the `json` output module to write events to stdout in JSON format:
+
+```bash
+bbot -t evilcorp.com -om json | jq
+```
+
+Each event is a JSON object. Here is a full example:
+
+```json
+{
+  "type": "DNS_NAME",
+  "id": "DNS_NAME:33bc005c2bdfea4d73e07db733bd11861cf6520e",
+  "uuid": "DNS_NAME:6c96d512-090a-47f0-82e4-6860e46aac13",
+  "scope_description": "in-scope",
+  "data": "link.evilcorp.com",
+  "host": "link.evilcorp.com",
+  "resolved_hosts": [
+    "184.31.52.65",
+    "2600:1402:b800:d82::700"
+  ],
+  "dns_children": {
+    "A": ["184.31.52.65"],
+    "AAAA": ["2600:1402:b800:d82::700"],
+    "CNAME": ["link.evilcorp.com.edgekey.net"]
+  },
+  "scope_distance": 0,
+  "scan": "SCAN:b6ef48bc036bc8d001595ae5061846a7e6beadb6",
+  "timestamp": "2024-10-18T15:40:13.716880+00:00",
+  "parent": "DNS_NAME:94c92b7eaed431b37ae2a757fec4e678cc3bd213",
+  "tags": ["subdomain", "a-record", "in-scope", "cname-record"],
+  "module": "speculate",
+  "module_sequence": "speculate->speculate"
+}
+```
+
+Filter JSON output with `jq`:
+
+```bash
+# extract only the .data field of every DNS_NAME event
+jq -r 'select(.type=="DNS_NAME") | .data' ~/.bbot/scans/extreme_johnny/output.json
+evilcorp.com
+www.evilcorp.com
+mail.evilcorp.com
+```
+
+For SIEM ingestion (Elastic, Splunk), enable SIEM-friendly mode so the `.data` field is always a dictionary:
+
+```bash
+bbot -t evilcorp.com -c modules.json.siem_friendly=true
+```
+
+---
+
+## Notification output modules
+
+### Discord / Slack / Teams
+
+Send findings directly to a messaging platform via webhook:
+
+<Tabs>
+  <Tab title="Discord">
+    ```bash
+    bbot -t evilcorp.com -om discord \
+      -c modules.discord.webhook_url=https://discord.com/api/webhooks/1234/deadbeef
+    ```
+
+    ```yaml title="discord_preset.yml"
+    config:
+      modules:
+        discord:
+          webhook_url: https://discord.com/api/webhooks/1234/deadbeef
+          # events to send (default: VULNERABILITY, FINDING)
+          event_types:
+            - VULNERABILITY
+            - FINDING
+            - STORAGE_BUCKET
+          # only send HIGH and CRITICAL vulnerabilities
+          min_severity: HIGH
+    ```
+  </Tab>
+  <Tab title="Slack">
+    ```bash
+    bbot -t evilcorp.com -om slack \
+      -c modules.slack.webhook_url=https://hooks.slack.com/services/T.../B.../...
+    ```
+  </Tab>
+  <Tab title="Teams">
+    ```bash
+    bbot -t evilcorp.com -om teams \
+      -c modules.teams.webhook_url=https://outlook.office.com/webhook/...
+    ```
+  </Tab>
+</Tabs>
+
+By default, only `VULNERABILITY` and `FINDING` events are sent. You can send specific event types and filter by severity.
+
+---
+
+## HTTP output
+
+The `http` output module sends events as JSON to any HTTP endpoint:
+
+```bash
+# POST scan results to localhost
+bbot -t evilcorp.com -om http -c modules.http.url=http://localhost:8000
+```
+
+```yaml title="http_preset.yml"
+config:
+  modules:
+    http:
+      url: https://localhost:8000
+      method: PUT
+      # Bearer token auth
+      bearer: <bearer_token>
+      # OR basic auth
+      username: bob
+      password: P@ssw0rd
+```
+
+### Elasticsearch
+
+Use the `http` module with SIEM-friendly mode to send events directly to Elasticsearch:
+
+```bash
+bbot -t evilcorp.com -om http \
+  -c modules.http.url=http://localhost:9200/bbot/_doc \
+  -c modules.http.siem_friendly=true \
+  -c modules.http.username=elastic \
+  -c modules.http.password=changeme
+```
+
+```yaml title="elastic_preset.yml"
+config:
+  modules:
+    http:
+      url: http://localhost:9200/bbot/_doc
+      siem_friendly: true
+      username: elastic
+      password: changeme
+```
+
+### Splunk
+
+The `splunk` module sends events via [HEC](https://docs.splunk.com/Documentation/Splunk/9.2.0/Data/UsetheHTTPEventCollector):
+
+```yaml title="splunk_preset.yml"
+config:
+  modules:
+    splunk:
+      url: https://localhost:8088/services/collector/event
+      hectoken: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      # defaults to "main"
+      index: my-specific-index
+      # defaults to "bbot"
+      source: /my/source.json
+```
+
+---
+
+## Database output modules
+
+### SQLite
+
+Produces a SQLite database with all events, scans, and targets:
+
+```bash
+bbot -t evilcorp.com -om sqlite
+
+# custom database path
+bbot -t evilcorp.com -om sqlite -c modules.sqlite.database=/tmp/bbot.sqlite
+```
+
+### Postgres
+
+Ingest events into a PostgreSQL database:
+
+```bash
+bbot -t evilcorp.com -om postgres -c modules.postgres.database=custom_bbot_db
+```
+
+```yaml title="postgres_preset.yml"
+config:
+  modules:
+    postgres:
+      host: psq.fsociety.local
+      database: custom_bbot_db
+      port: 5432
+      username: postgres
+      password: bbotislife
+```
+
+### MySQL
+
+Ingest events into a MySQL database:
+
+```bash
+bbot -t evilcorp.com -om mysql -c modules.mysql.database=custom_bbot_db
+```
+
+```yaml title="mysql_preset.yml"
+config:
+  modules:
+    mysql:
+      host: mysql.fsociety.local
+      database: custom_bbot_db
+      port: 3306
+      username: root
+      password: bbotislife
+```
+
+### Neo4j
+
+Neo4j is the most visual way to explore BBOT data — browse the graph interactively in a web UI.
+
+<Steps>
+  <Step title="Start Neo4j with Docker">
+    ```bash
+    docker run -d -p 7687:7687 -p 7474:7474 \
+      -v "$(pwd)/neo4j/:/data/" \
+      -e NEO4J_AUTH=neo4j/bbotislife neo4j
+    ```
+  </Step>
+  <Step title="Run BBOT with neo4j output">
+    ```bash
+    bbot -f subdomain-enum -t evilcorp.com -om neo4j
+    ```
+  </Step>
+  <Step title="Open the web UI">
+    Log in at `http://localhost:7474` with credentials `neo4j` / `bbotislife`.
+  </Step>
+</Steps>
+
+**Useful Cypher queries:**
+
+```cypher
+// Get all in-scope DNS names
+MATCH (n:DNS_NAME)
+WHERE "in-scope" IN n.tags
+RETURN n.data, n.tags
+```
+
+```cypher
+// Get a graph of open ports per domain
+MATCH z = ((n:DNS_NAME) --> (p:OPEN_TCP_PORT))
+RETURN z
+```
+
+```cypher
+// Count all event types in the database
+MATCH (n)
+RETURN labels(n), count(n)
+```
+
+```cypher
+// Clear the database
+MATCH (n) DETACH DELETE n
+```
+
+---
+
+## Specialized output modules
+
+### Subdomains
+
+Outputs a plain-text file containing only in-scope, resolved subdomains:
+
+```text title="subdomains.txt"
+evilcorp.com
+www.evilcorp.com
+mail.evilcorp.com
+portal.evilcorp.com
+```
+
+Enable it via the `subdomain-enum` preset, or directly:
+
+```bash
+bbot -t evilcorp.com -f subdomain-enum -om subdomains
+```
+
+### Emails
+
+Similar to `subdomains`, the `emails` output module writes discovered email addresses to a file. It is enabled automatically by the `email-enum` preset.
+
+### Asset inventory
+
+Produces a CSV with a host-centric view of your discovered assets:
+
+| Host | Provider | IP(s) | Status | Open Ports |
+|---|---|---|---|---|
+| `evilcorp.com` | `cdn-github` | `1.2.3.4` | Active | `80,443` |
+| `www.evilcorp.com` | `cdn-github` | `2.3.4.5` | Active | `22,80,443` |
+| `admin.evilcorp.com` | `cloud-azure` | `5.6.7.8` | N/A | |
+
+```bash
+bbot -t evilcorp.com -f subdomain-enum -om asset_inventory
+```
+
+### Web parameters
+
+The `web_parameters` module outputs discovered HTTP parameters to `web_parameters.txt`. Web parameter extraction is disabled by default but is automatically enabled when any module consuming `WEB_PARAMETER` events (including this output module) is active:
+
+```bash
+bbot -t evilcorp.com -om web_parameters
+```
+
+You can feed discovered parameters back into BBOT for targeted fuzzing:
+
+```bash
+bbot -t evilcorp.com -m paramminer_getparams \
+  -c modules.paramminer_getparams.wordlist=/path/to/your/wordlist.txt
+```
+
+### WebSocket
+
+The `websocket` output module streams events in real time to a WebSocket server.
+
+### Nmap XML
+
+The `nmap_xml` output module produces an Nmap-compatible XML file from discovered open ports.
+
+---
+
+## Filtering output
+
+To filter which event types appear in the terminal:
+
+```bash
+# show only DNS_NAME and URL events
+bbot -t evilcorp.com -f subdomain-enum --event-types DNS_NAME URL
+
+# output only the raw data values (no event type or metadata)
+bbot -t evilcorp.com -f subdomain-enum --brief
+
+# output everything as JSON to stdout
+bbot -t evilcorp.com -f subdomain-enum --json
+```
+
+To display normally-hidden event types like `HTTP_RESPONSE`, modify `omit_event_types` in your config:
+
+```yaml title="~/.config/bbot/bbot.yml"
+omit_event_types:
+  - URL_UNVERIFIED
+  # comment out HTTP_RESPONSE to show it
+  # - HTTP_RESPONSE
+```

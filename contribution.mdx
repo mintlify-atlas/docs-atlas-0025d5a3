@@ -1,0 +1,173 @@
+---
+title: "Contributing to BBOT"
+description: "How to contribute code, modules, bug reports, and ideas to the BBOT project."
+---
+
+BBOT is built by the community. Some of the best modules were written by contributors just like you. Whether you want to fix a bug, write a new module, improve the docs, or share an idea — every contribution matters.
+
+<CardGroup cols={3}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/blacklanternsecurity/bbot/issues">
+    Report bugs or browse existing issues to find something to work on.
+  </Card>
+  <Card title="Discussions" icon="message-circle" href="https://github.com/blacklanternsecurity/bbot/discussions">
+    Share ideas for new features or ask questions before opening a PR.
+  </Card>
+  <Card title="Discord" icon="discord" href="https://discord.com/invite/PZqkgxu5SA">
+    Chat with the maintainers and the broader BBOT community.
+  </Card>
+</CardGroup>
+
+## Ways to contribute
+
+You do not have to write code to contribute. Here are the most impactful ways to get involved:
+
+- **Write a module** — new data sources, scanners, or output modules are always welcome.
+- **Report a bug** — a clear, reproducible bug report is enormously valuable.
+- **Suggest a feature** — open a [Discussion](https://github.com/blacklanternsecurity/bbot/discussions) to share your idea before writing any code.
+- **Improve the docs** — fix typos, clarify explanations, or add examples.
+- **Test pull requests** — try out open PRs and leave feedback.
+
+## Setting up a dev environment
+
+BBOT uses [Poetry](https://python-poetry.org/) to manage its development environment.
+
+<Steps>
+  <Step title="Fork and clone the repository">
+    Fork [BBOT on GitHub](https://github.com/blacklanternsecurity/bbot), then clone your fork locally:
+
+    ```bash
+    git clone git@github.com/<your-username>/bbot.git
+    cd bbot
+    ```
+  </Step>
+
+  <Step title="Install Poetry">
+    If you do not have Poetry installed, install it with the official installer:
+
+    ```bash
+    curl -sSL https://install.python-poetry.org | python3 -
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    Install all Python dependencies and set up the pre-commit hooks:
+
+    ```bash
+    # install pip dependencies
+    poetry install
+
+    # install pre-commit hooks (linting, formatting)
+    poetry run pre-commit install
+    ```
+  </Step>
+
+  <Step title="Activate the virtual environment">
+    Drop into the Poetry shell so `bbot` points to your local development copy:
+
+    ```bash
+    poetry shell
+
+    # verify it's working
+    bbot --help
+    ```
+
+    Any code changes you make are immediately reflected when you run `bbot`.
+  </Step>
+
+  <Step title="Run the tests">
+    Before opening a pull request, auto-format your code and run the full test suite:
+
+    ```bash
+    # auto-format code style
+    ruff format
+
+    # run all tests
+    ./bbot/test/run_tests.sh
+    ```
+
+    <Warning>All tests must pass before your pull request can be reviewed. Do not skip this step.</Warning>
+  </Step>
+
+  <Step title="Push and open a pull request">
+    Commit your changes and push to your fork, then open a pull request against the **`dev` branch** of the main BBOT repository.
+
+    ```bash
+    git checkout -b my-feature-branch
+    git add .
+    git commit -m "Add: brief description of your change"
+    git push origin my-feature-branch
+    ```
+
+    <Info>Always target the `dev` branch, not `main` or `stable`.</Info>
+  </Step>
+</Steps>
+
+## Writing a module
+
+The fastest way to extend BBOT is to write a custom module. Modules are Python classes that consume events (DNS names, IPs, URLs, etc.) and emit new events based on what they find.
+
+A minimal module looks like this:
+
+```python
+from bbot.modules.base import BaseModule
+
+class my_module(BaseModule):
+    watched_events = ["DNS_NAME"]
+    produced_events = ["DNS_NAME"]
+    flags = ["subdomain-enum", "passive", "safe"]
+    meta = {"description": "My custom BBOT module"}
+
+    async def handle_event(self, event):
+        # do something with event.data
+        new_host = f"discovered.{event.data}"
+        await self.emit_event(new_host, "DNS_NAME", source=event)
+```
+
+For a full walkthrough — including how to add config options, handle dependencies, and write tests — see the [module how-to guide](/dev/module-howto).
+
+## Code style
+
+BBOT uses [Ruff](https://github.com/astral-sh/ruff) for formatting and linting. The pre-commit hooks installed in step 3 above run Ruff automatically before each commit.
+
+To format manually at any time:
+
+```bash
+ruff format
+ruff check --fix
+```
+
+Key style rules:
+
+- Follow PEP 8 conventions.
+- Use descriptive variable names — clarity over brevity.
+- Add docstrings to public methods and classes.
+- Keep modules focused: one clear responsibility per module.
+
+## Pull request process
+
+1. **Open a Discussion first** for large features — get feedback before investing significant time.
+2. **Keep PRs focused** — one feature or bug fix per PR makes review faster.
+3. **Write tests** — new modules and features must include tests in `bbot/test/`.
+4. **Update the docs** if your change affects user-facing behavior.
+5. **Target the `dev` branch** — PRs against `stable` or `main` will be redirected.
+
+A maintainer will review your PR. You may be asked to make changes before it is merged.
+
+<Tip>If you are unsure where to start, look for issues labelled **good first issue** on [GitHub](https://github.com/blacklanternsecurity/bbot/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22).</Tip>
+
+## Further reading
+
+<CardGroup cols={2}>
+  <Card title="Dev environment setup" icon="terminal" href="/dev/dev-environment">
+    Full details on the Poetry-based development setup.
+  </Card>
+  <Card title="How to write a module" icon="puzzle" href="/dev/module-howto">
+    Step-by-step guide to writing your first BBOT module.
+  </Card>
+  <Card title="Architecture overview" icon="sitemap" href="/dev/architecture">
+    Understand how BBOT works under the hood.
+  </Card>
+  <Card title="Unit tests" icon="flask" href="/dev/tests">
+    Learn how to write and run tests for your contributions.
+  </Card>
+</CardGroup>

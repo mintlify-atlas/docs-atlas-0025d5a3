@@ -1,0 +1,96 @@
+---
+title: "Nuclei"
+description: "Run Nuclei vulnerability templates as part of a BBOT scan, from subdomain discovery all the way to confirmed vulnerabilities in one pass."
+---
+
+BBOT integrates with [Nuclei](https://github.com/projectdiscovery/nuclei), the open-source web vulnerability scanner by Project Discovery. The integration lets you go from a single target domain to confirmed vulnerabilities in one scan — subdomains are discovered, web services are detected, and Nuclei fires against each URL automatically.
+
+<Warning>
+Nuclei is a **deadly** module. You must pass `--allow-deadly` to enable it. Use only against targets you have permission to scan.
+</Warning>
+
+## How it works
+
+- The `nuclei` module watches for **`URL`** events and emits **`VULNERABILITY`** or **`FINDING`** events
+- Vulnerability severity is inherited from the Nuclei template
+- Templates with `INFO` severity are emitted as `FINDING` events
+- By default, only directory URLs (ending in `/`) are scanned
+
+## Enable Nuclei
+
+```bash
+# Basic web scan with Nuclei
+bbot -f web-basic -m portscan nuclei --allow-deadly -t app.evilcorp.com
+
+# Multiple targets
+bbot -f web-basic -m portscan nuclei --allow-deadly -t app1.evilcorp.com app2.evilcorp.com app3.evilcorp.com
+
+# Subdomain enum + Nuclei
+bbot -f subdomain-enum web-basic -m portscan nuclei --allow-deadly -t evilcorp.com
+```
+
+## Scan modes
+
+Use `modules.nuclei.mode` to control which templates run:
+
+<AccordionGroup>
+  <Accordion title="manual (default)">
+    Uses all Nuclei templates. Pair with `tags`, `etags`, and `severity` options to narrow scope.
+  </Accordion>
+  <Accordion title="severe">
+    Only high and critical severity templates, with intrusive templates excluded. Much faster — useful when you need quick wins without a full scan.
+  </Accordion>
+  <Accordion title="technology">
+    Equivalent to `nuclei -as`. Only runs templates that match detected technologies via Wappalyzer signatures. Lightweight with reasonable coverage.
+  </Accordion>
+  <Accordion title="budget">
+    Unique to BBOT. For large scans with thousands of hosts, running full Nuclei per host is impractical. Budget mode uses Nuclei's collapsible template feature — for just 1–10 extra requests per host, it can activate hundreds of templates that share the same base URL request.
+
+    ```bash
+    bbot -f subdomain-enum web-basic -m portscan nuclei --allow-deadly \
+      -c modules.nuclei.mode=budget -t evilcorp.com
+    ```
+
+    Set `modules.nuclei.budget` to control how many extra requests per host are allowed (default: `1`).
+  </Accordion>
+</AccordionGroup>
+
+## Custom templates
+
+Specify individual templates by path:
+
+```bash
+bbot -m nuclei --allow-deadly \
+  -c modules.nuclei.templates=http/takeovers/airee-takeover.yaml,http/takeovers/cargo-takeover.yaml \
+  -t evilcorp.com
+```
+
+Or in your config file:
+
+```yaml ~/.config/bbot/bbot.yml
+modules:
+  nuclei:
+    templates: http/takeovers/airee-takeover.yaml,http/takeovers/cargo-takeover.yaml
+```
+
+## Configuration options
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `modules.nuclei.mode` | str | `manual` | `manual` \| `technology` \| `severe` \| `budget` |
+| `modules.nuclei.templates` | str | | Template paths to include (comma-separated) |
+| `modules.nuclei.tags` | str | | Only run templates with these tags |
+| `modules.nuclei.etags` | str | | Exclude templates with these tags |
+| `modules.nuclei.severity` | str | | Filter by severity (e.g. `critical,high`) |
+| `modules.nuclei.concurrency` | int | `25` | Max templates executing in parallel |
+| `modules.nuclei.ratelimit` | int | `150` | Max requests per second |
+| `modules.nuclei.retries` | int | `0` | Retries on failed requests |
+| `modules.nuclei.batch_size` | int | `200` | Targets sent to Nuclei per batch |
+| `modules.nuclei.budget` | int | `1` | Requests per host in budget mode |
+| `modules.nuclei.directory_only` | bool | `true` | Only scan directory URLs |
+| `modules.nuclei.silent` | bool | `false` | Suppress Nuclei's banner and status |
+| `modules.nuclei.version` | str | `3.7.1` | Nuclei version to use |
+
+<Note>
+Avoid changing `directory_only`. Disabling it causes Nuclei to process every URL — in a recursive BBOT scan this can spiral rapidly depending on which other modules are active.
+</Note>

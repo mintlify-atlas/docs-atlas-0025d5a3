@@ -1,0 +1,79 @@
+---
+title: "Introduction"
+description: "BBOT is a recursive, event-driven internet scanner built for recon, bug bounties, and attack surface management."
+---
+
+BBOT (BEE·bot) is a multipurpose scanner that automates your **recon**, **bug bounty hunting**, and **attack surface management**. It seeds a scan from one or more targets and then spiders outward recursively — each module consuming events from other modules and producing new ones, creating a self-reinforcing web of discovery.
+
+With 100+ modules and a built-in preset system, BBOT covers the full spectrum: subdomain enumeration, web scanning, cloud asset discovery, OSINT, email harvesting, and more.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Install BBOT and run your first scan in minutes.
+  </Card>
+  <Card title="How It Works" icon="diagram-project" href="/how-it-works">
+    Understand the recursive, event-driven engine behind BBOT.
+  </Card>
+  <Card title="Scanning Guide" icon="radar" href="/scanning/overview">
+    Learn targets, presets, flags, scope, and output options.
+  </Card>
+  <Card title="Module List" icon="puzzle-piece" href="/modules/list-of-modules">
+    Browse all 100+ built-in modules.
+  </Card>
+</CardGroup>
+
+## Who BBOT is for
+
+BBOT is designed for:
+
+- **Bug bounty hunters** who need to map a target's entire external attack surface quickly
+- **Penetration testers** running recon before an engagement
+- **Red teams** automating recurring attack surface monitoring
+- **Security researchers** building custom recon pipelines in Python
+
+<Note>
+  Only **Linux** is supported. If you're on Windows or macOS, use the [Docker image](https://hub.docker.com/r/blacklanternsecurity/bbot).
+</Note>
+
+## Key capabilities
+
+- **Recursive subdomain enumeration** — passive API sources combined with a recursive DNS brute-force using NLP-powered mutations. BBOT consistently finds 20–50% more subdomains than comparable tools.
+- **Web scanning** — crawling, parameter mining, Nuclei templates, LightFuzz, IIS shortname scanning, BadSecrets, and more.
+- **OSINT & cloud enumeration** — enumerate assets across AWS, GCP, and Azure; harvest emails, code repositories, leaked credentials, and social profiles.
+- **Multiple target types** — domains, IPs, CIDR ranges, URLs, email addresses, GitHub orgs, mobile apps, and more.
+- **Flexible output** — write results simultaneously to Neo4j, Postgres, Elasticsearch, CSV, JSON, Slack, Discord, Teams, and more.
+- **Preset system** — one-command scans with composable YAML presets (`subdomain-enum`, `web-basic`, `kitchen-sink`, etc.).
+- **Custom YARA rules** — scan your entire discovered attack surface with your own YARA rule sets.
+- **Web screenshots** — automatic screenshots of every discovered web service.
+
+## Using BBOT as a Python library
+
+BBOT exposes a clean Python API so you can embed scans directly in your own tools and scripts.
+
+**Synchronous:**
+
+```python
+from bbot.scanner import Scanner
+
+if __name__ == "__main__":
+    scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+    for event in scan.start():
+        print(event)
+```
+
+**Asynchronous:**
+
+```python
+from bbot.scanner import Scanner
+import asyncio
+
+async def main():
+    scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+    async for event in scan.async_start():
+        print(event.json())
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+For the full Python API reference, see the [Developer Reference](/dev/index).

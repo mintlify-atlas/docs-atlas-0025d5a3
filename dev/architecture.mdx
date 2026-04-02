@@ -1,0 +1,185 @@
+---
+title: "BBOT Architecture"
+description: "A deep dive into BBOT's event-driven, multiprocess engine — how events are created, distributed, and consumed across modules."
+---
+
+BBOT is a recursive, event-driven scanner. Each piece of discovered information — a domain name, an IP address, an open port, a URL — becomes an **event** that gets redistributed to every interested module. Modules then produce new events of their own, creating a self-reinforcing discovery loop that continues until no new events are generated.
+
+## Core concepts
+
+### Events
+
+An event is the fundamental unit of data in a BBOT scan. Every result — a `DNS_NAME`, `IP_ADDRESS`, `OPEN_TCP_PORT`, `URL`, `FINDING`, and so on — is wrapped in an event object and flows through the pipeline. Each event carries:
+
+- A **type** (e.g., `DNS_NAME`)
+- A **data** payload (the actual value)
+- A **source** event (what produced it)
+- Scope and distance metadata
+
+### Queues
+
+Every module has an **incoming queue** and an **outgoing queue**. The scan manager routes events whose types match a module's `WATCHED_EVENTS` list into that module's incoming queue. When a module produces a new event, it places it in its outgoing queue, where the manager picks it up and redistributes it to any other interested modules.
+
+This queue-based design keeps the scan from stalling: modules that are slow or waiting on I/O do not block modules that are ready to process events.
+
+```
+Target seed event
+       │
+       ▼
+ ┌─────────────┐     outgoing queue     ┌─────────────┐
+ │  dns_brute  │ ──────────────────────► │  httpx      │
+ └─────────────┘                        └─────────────┘
+       │                                       │
+       │ DNS_NAME events                       │ URL events
+       ▼                                       ▼
+ ┌─────────────┐                        ┌─────────────┐
+ │  sslcert    │                        │  nuclei     │
+ └─────────────┘                        └─────────────┘
+```
+
+## Process model
+
+### BBOTCore
+
+`BBOTCore` (`bbot/core/core.py`) is the first object instantiated when you import BBOT. It:
+
+- Sets up logging.
+- Loads and merges the default config (`defaults.yml`) with the user's custom config (`~/.config/bbot/bbot.yml`).
+- Configures the multiprocessing context so that all spawned child processes inherit BBOT's custom `BBOTProcess` class.
+
+```python
+# BBOTCore is a singleton available as bbot.core.CORE
+from bbot.core import CORE
+
+print(CORE.config["home"])   # ~/.bbot
+print(CORE.scans_dir)        # ~/.bbot/scans
+```
+
+### Multiprocessing with spawn
+
+BBOT uses Python's `spawn` start method for child processes (rather than `fork`). This avoids file-descriptor and lock inheritance issues and makes behaviour consistent across platforms. The custom `BBOTProcess` class ensures that logging queues and log levels are forwarded from the parent process to every child.
+
+### Scanner
+
+`Scanner` (`bbot/scanner/scanner.py`) is the main entry point for programmatic use. It:
+
+1. Accepts targets and configuration.
+2. Creates and bakes a `Preset` (resolving modules, flags, config, whitelists, and blacklists).
+3. Assigns a human-readable scan name.
+4. Loads all enabled modules.
+5. Drives the scan lifecycle: `NOT_STARTED → STARTING → RUNNING → FINISHING → CLEANING_UP → FINISHED`.
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+```
+
+### Scan status lifecycle
+
+| Status | Code | Meaning |
+|---|---|---|
+| `NOT_STARTED` | 0 | Scanner created, scan not yet started |
+| `STARTING` | 1 | Modules loading, seed events queued |
+| `RUNNING` | 2 | Actively processing events |
+| `FINISHING` | 3 | No more new events; finishing up |
+| `CLEANING_UP` | 4 | Releasing resources |
+| `ABORTING` | 5 | Abort requested |
+| `ABORTED` | 6 | Scan was aborted |
+| `FAILED` | 7 | Unrecoverable error |
+| `FINISHED` | 8 | Scan completed successfully |
+
+## Engine: ZMQ-based RPC
+
+CPU-intensive and high-concurrency I/O tasks (DNS resolution, HTTP requests) run in dedicated **engine** child processes rather than in the main process. Engines communicate with the main scan using [ZeroMQ](https://zeromq.org/) in a ROUTER-DEALER configuration.
+
+### EngineClient and EngineServer
+
+The engine system is split into two classes (`bbot/core/engine.py`):
+
+- **`EngineClient`** — runs in the main scan process. Exposes async stub methods that serialize arguments and send them over a ZMQ socket.
+- **`EngineServer`** — runs in a dedicated child process. Receives messages, executes the real logic, and sends results back.
+
+```python
+# Client stub — just forwards arguments over ZMQ
+class MyClient(EngineClient):
+    SERVER_CLASS = MyServer
+
+    async def my_function(self, **kwargs):
+        return await self.run_and_return("my_function", **kwargs)
+
+    async def my_generator(self, **kwargs):
+        async for result in self.run_and_yield("my_generator", **kwargs):
+            yield result
+```
+
+Arguments and return values are serialized with `pickle`. The client uses `run_and_return()` for single-value functions and `run_and_yield()` for async generators.
+
+<Info>
+  BBOT spawns one engine process for DNS and one for HTTP. This keeps heavy I/O
+  off the main event loop, allowing the scan manager and module dispatch to
+  remain responsive.
+</Info>
+
+## Event flow in detail
+
+```
+1. Scanner seeds the queue with target events (e.g., DNS_NAME:evilcorp.com)
+2. ScanIngress distributes each event to modules whose WATCHED_EVENTS match
+3. Each module's handle_event() (or handle_batch()) processes the event
+4. New events produced by modules are placed into the outgoing queue (ScanEgress)
+5. ScanEgress validates scope, deduplicates, and re-queues events
+6. The loop continues until no new events are produced
+7. finish() is called on each module for any final output
+```
+
+### Module parallelism
+
+Most BBOT modules run concurrently. The main event loop dispatches work to modules without waiting for each one to finish. A few modules run sequentially by design (for example, `speculate` and `aggregate`, which depend on the full picture from other modules).
+
+## Internal modules
+
+Several modules run in every scan and are not user-configurable:
+
+| Module | Role |
+|---|---|
+| `excavate` | Extracts URLs, emails, secrets, and other data from HTTP responses |
+| `speculate` | Infers additional targets from discovered data (e.g., deduces IP ranges) |
+| `aggregate` | Collects final statistics and summaries at the end of a scan |
+
+## Module lifecycle
+
+Every module goes through a fixed lifecycle during a scan:
+
+```
+setup()          — called once at scan start; return False to disable the module
+handle_event()   — called for each incoming event (or handle_batch() for batched modules)
+finish()         — called once when the scan is wrapping up
+cleanup()        — called after finish(); release any held resources
+```
+
+<Warning>
+  If `setup()` raises an exception or returns `False`, the module is disabled
+  for the rest of the scan. Always handle optional dependencies in `setup()`.
+</Warning>
+
+## Scanner → Manager → Modules relationship
+
+```
+Scanner
+  └── ScanIngress / ScanEgress (manager)
+        ├── Module A (incoming queue → handle_event → outgoing queue)
+        ├── Module B (incoming queue → handle_event → outgoing queue)
+        └── Module C (incoming queue → handle_batch → outgoing queue)
+```
+
+`ScanIngress` routes incoming events to module queues based on `WATCHED_EVENTS`. `ScanEgress` collects events from module outgoing queues, validates them against the scan's whitelist and blacklist, deduplicates, and re-injects them into `ScanIngress` for the next round.
+
+## Configuration layering
+
+BBOT uses [OmegaConf](https://omegaconf.readthedocs.io/) to manage configuration. Two layers are merged at runtime:
+
+1. **Default config** — `defaults.yml`, read-only after load.
+2. **Custom config** — `~/.config/bbot/bbot.yml`, user-supplied overrides.
+
+`BBOTCore.config` exposes the merged read-only view. Module-level config lives under `config.modules.<module_name>`.

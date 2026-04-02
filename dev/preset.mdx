@@ -1,0 +1,401 @@
+---
+title: "Preset"
+description: "A Preset is the central configuration for a BBOT scan — targets, modules, flags, API keys, and more. Build one programmatically or load it from YAML, then pass it into Scanner."
+---
+
+## Overview
+
+A `Preset` bundles everything a scan needs to run: targets, modules, flags, config overrides, whitelist, blacklist, and optional Jinja2 conditions. You can construct one in Python, load it from a YAML file, or let `Scanner` build one implicitly from its keyword arguments.
+
+```python
+from bbot.scanner import Scanner, Preset
+
+preset = Preset(
+    "evilcorp.com",
+    flags=["subdomain-enum"],
+    modules=["nuclei"],
+    config={"web": {"http_proxy": "http://127.0.0.1"}},
+)
+
+scan = Scanner(preset=preset)
+for event in scan.start():
+    print(event)
+```
+
+<Note>
+  You rarely need to create a `Preset` manually. Pass the same keyword arguments directly to `Scanner` and it will create the preset for you.
+</Note>
+
+## Constructor
+
+```python
+Preset(
+    *targets,
+    whitelist=None,
+    blacklist=None,
+    modules=None,
+    output_modules=None,
+    exclude_modules=None,
+    flags=None,
+    require_flags=None,
+    exclude_flags=None,
+    config=None,
+    module_dirs=None,
+    output_dir=None,
+    name=None,
+    description=None,
+    scan_name=None,
+    conditions=None,
+    force_start=False,
+    verbose=False,
+    debug=False,
+    silent=False,
+    include=None,
+    presets=None,
+)
+```
+
+<ParamField path="*targets" type="str" optional>
+  Target(s) to scan. Accepts hostnames, IPs, CIDRs, email addresses, and open ports.
+</ParamField>
+
+<ParamField path="whitelist" type="list[str]" optional>
+  Hosts to allow in scan output. Defaults to the same as `targets`.
+</ParamField>
+
+<ParamField path="blacklist" type="list[str]" optional>
+  Hosts to never interact with. Takes ultimate precedence over whitelist.
+</ParamField>
+
+<ParamField path="modules" type="list[str]" optional>
+  Scan modules to enable, e.g. `["portscan", "sslcert", "httpx"]`.
+</ParamField>
+
+<ParamField path="output_modules" type="list[str]" optional>
+  Output modules to use. Defaults to `csv`, `txt`, and `json`.
+</ParamField>
+
+<ParamField path="exclude_modules" type="list[str]" optional>
+  Modules to disable even if they would otherwise be enabled by flags.
+</ParamField>
+
+<ParamField path="flags" type="list[str]" optional>
+  Enable all modules that carry any of these flags, e.g. `["subdomain-enum"]`.
+</ParamField>
+
+<ParamField path="require_flags" type="list[str]" optional>
+  Only enable modules that have all of these flags.
+</ParamField>
+
+<ParamField path="exclude_flags" type="list[str]" optional>
+  Exclude any module that has any of these flags, e.g. `["slow", "aggressive"]`.
+</ParamField>
+
+<ParamField path="config" type="dict" optional>
+  Arbitrary config overrides merged on top of the global BBOT config.
+
+  ```python
+  config={
+      "web": {"http_proxy": "http://127.0.0.1:8080"},
+      "modules": {"portscan": {"top_ports": 2000}},
+  }
+  ```
+</ParamField>
+
+<ParamField path="module_dirs" type="list[str or Path]" optional>
+  Additional directories from which to load custom modules.
+</ParamField>
+
+<ParamField path="output_dir" type="str or Path" optional>
+  Directory to write scan output. Defaults to `~/.bbot/scans/<scan_name>`.
+</ParamField>
+
+<ParamField path="scan_name" type="str" optional>
+  Name of the scan. Defaults to a random two-word name.
+</ParamField>
+
+<ParamField path="name" type="str" optional>
+  Human-readable name of the preset, used for logging.
+</ParamField>
+
+<ParamField path="description" type="str" optional>
+  Description of the preset.
+</ParamField>
+
+<ParamField path="conditions" type="list[str]" optional>
+  Jinja2 template strings evaluated before the scan starts. Use to print warnings, enable/disable modules, or abort the scan based on preset state.
+</ParamField>
+
+<ParamField path="force_start" type="bool" default="False">
+  If `True`, ignore conditional aborts and failed module setups and run the scan regardless.
+</ParamField>
+
+<ParamField path="verbose" type="bool" default="False">
+  Set the logger to verbose mode.
+</ParamField>
+
+<ParamField path="debug" type="bool" default="False">
+  Set the logger to debug mode.
+</ParamField>
+
+<ParamField path="silent" type="bool" default="False">
+  Silence all stderr output.
+</ParamField>
+
+<ParamField path="include" type="list[str]" optional>
+  Names or filenames of other presets to include and merge into this one. The last preset wins on conflict.
+</ParamField>
+
+<ParamField path="presets" type="list[str]" optional>
+  Alias for `include`.
+</ParamField>
+
+## Attributes
+
+<ResponseField name="target" type="BBOTTarget">
+  The combined scan target (available after the preset is baked by `Scanner`).
+</ResponseField>
+
+<ResponseField name="whitelist" type="ScanWhitelist">
+  The scan whitelist (available after baking).
+</ResponseField>
+
+<ResponseField name="blacklist" type="ScanBlacklist">
+  The scan blacklist (available after baking).
+</ResponseField>
+
+<ResponseField name="modules" type="set[str]">
+  All enabled module names (scan + output + internal).
+</ResponseField>
+
+<ResponseField name="scan_modules" type="list[str]">
+  Subset of `modules` that are of type `scan`.
+</ResponseField>
+
+<ResponseField name="output_modules" type="list[str]">
+  Subset of `modules` that are of type `output`.
+</ResponseField>
+
+<ResponseField name="internal_modules" type="list[str]">
+  Subset of `modules` that are of type `internal`.
+</ResponseField>
+
+<ResponseField name="flags" type="set[str]">
+  Active flags. Setting this automatically enables matching modules.
+</ResponseField>
+
+<ResponseField name="exclude_modules" type="set[str]">
+  Modules excluded from the scan.
+</ResponseField>
+
+<ResponseField name="require_flags" type="set[str]">
+  Only modules with all these flags are allowed.
+</ResponseField>
+
+<ResponseField name="exclude_flags" type="set[str]">
+  Any module with any of these flags is disabled.
+</ResponseField>
+
+<ResponseField name="config" type="omegaconf.DictConfig">
+  Full BBOT configuration (alias to `core.config`).
+</ResponseField>
+
+<ResponseField name="helpers" type="ConfigAwareHelper">
+  Helper object for web, DNS, and misc utilities.
+</ResponseField>
+
+<ResponseField name="output_dir" type="pathlib.Path">
+  Output directory for the scan.
+</ResponseField>
+
+<ResponseField name="scan_name" type="str">
+  Scan name.
+</ResponseField>
+
+<ResponseField name="verbose" type="bool">
+  Whether logging is in verbose mode.
+</ResponseField>
+
+<ResponseField name="debug" type="bool">
+  Whether logging is in debug mode.
+</ResponseField>
+
+<ResponseField name="silent" type="bool">
+  Whether all logging is suppressed.
+</ResponseField>
+
+<ResponseField name="module_dirs" type="set">
+  Custom module directories (alias to `module_loader.module_dirs`).
+</ResponseField>
+
+## Methods
+
+### `merge(other)`
+
+```python
+def merge(other: Preset) -> None
+```
+
+Merge another preset into this one. If there are config conflicts, `other` wins.
+
+```python
+preset1 = Preset(modules=["portscan"])
+preset2 = Preset(modules=["sslcert"])
+preset1.merge(preset2)
+# preset1.scan_modules now includes both "portscan" and "sslcert"
+```
+
+---
+
+### `bake(scan=None)`
+
+```python
+def bake(scan=None) -> Preset
+```
+
+Return a finalized copy of the preset, ready for use by a scan. This populates `modules` from flags, runs validations, and evaluates `conditions`. Called automatically by `Scanner.__init__()`.
+
+---
+
+### `from_yaml_file(filename)`
+
+```python
+@classmethod
+def from_yaml_file(filename, _exclude=None, _log=False) -> Preset
+```
+
+Load a preset from a YAML file. The file extension is optional; BBOT searches its standard preset directories automatically.
+
+```python
+preset = Preset.from_yaml_file("subdomain-enum")
+scan = Scanner(preset=preset)
+```
+
+---
+
+### `from_yaml_string(yaml_preset)`
+
+```python
+@classmethod
+def from_yaml_string(yaml_preset: str) -> Preset
+```
+
+Create a preset from a YAML string.
+
+```python
+yaml_string = """
+target:
+  - evilcorp.com
+modules:
+  - portscan
+  - httpx
+"""
+preset = Preset.from_yaml_string(yaml_string)
+```
+
+---
+
+### `from_dict(preset_dict)`
+
+```python
+@classmethod
+def from_dict(preset_dict: dict, name=None, _exclude=None, _log=False) -> Preset
+```
+
+Create a preset from a Python dictionary.
+
+```python
+preset = Preset.from_dict({
+    "target": ["evilcorp.com"],
+    "modules": ["portscan"],
+})
+```
+
+---
+
+### `to_dict(include_target=False, full_config=False, redact_secrets=False)`
+
+```python
+def to_dict(...) -> dict
+```
+
+Serialize the preset to a Python dictionary.
+
+---
+
+### `in_scope(host)`
+
+```python
+def in_scope(host) -> bool
+```
+
+Check whether a host is in scope (passes whitelist and blacklist checks). Delegates to `self.target.in_scope(host)`.
+
+---
+
+### `include_preset(filename)`
+
+```python
+def include_preset(filename) -> None
+```
+
+Load a YAML preset file and merge it into this preset.
+
+## Preset YAML format
+
+Presets can be defined in YAML and loaded with `Preset.from_yaml_file()`.
+
+```yaml
+description: Enumerate subdomains of a target
+
+# Scan targets
+target:
+  - evilcorp.com
+
+# Optionally restrict which hosts can appear in output
+whitelist:
+  - evilcorp.com
+  - evilcorp.org
+
+# Never touch these hosts
+blacklist:
+  - prod.evilcorp.com
+
+# Enable module groups via flags
+flags:
+  - subdomain-enum
+
+# Add individual modules on top of flags
+modules:
+  - nuclei
+  - ipstack
+
+# Exclude specific modules or flags
+exclude_modules:
+  - binaryedge
+exclude_flags:
+  - slow
+
+# Config overrides (nested under the key they belong to)
+config:
+  web:
+    http_proxy: "http://127.0.0.1:8080"
+  modules:
+    nuclei:
+      tags: apache,nginx
+
+# Include and merge other presets
+include:
+  - iis-shortnames
+
+# Jinja2 conditions evaluated before the scan starts
+conditions:
+  - |
+    {% if not config.modules.shodan.api_key %}
+      {{ abort("Shodan API key is required") }}
+    {% endif %}
+```
+
+<Tip>
+  BBOT ships with built-in presets for common tasks. Run `bbot --list-presets` on the CLI to see them, or browse the [presets documentation](/scanning/presets).
+</Tip>

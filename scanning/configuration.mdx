@@ -1,0 +1,317 @@
+---
+title: "Configuration"
+description: "Configure BBOT globally via bbot.yml or per-scan via the -c flag and presets. Set API keys, HTTP proxies, DNS settings, and module options."
+---
+
+[Presets](/scanning/presets) are the primary way to configure a scan. But for settings you want to apply **every time** — like a default HTTP proxy, API keys, or thread counts — use BBOT's global config file.
+
+## Config file location
+
+BBOT's main config file is:
+
+```
+~/.config/bbot/bbot.yml
+```
+
+This file is created automatically the first time you run BBOT. Put global defaults here — anything you want to be set regardless of which preset you use.
+
+---
+
+## Config precedence
+
+BBOT loads configuration from multiple sources. Later sources override earlier ones:
+
+<Steps>
+  <Step title="Global defaults">
+    Built-in defaults from `defaults.yml` (shipped with BBOT).
+  </Step>
+  <Step title="Global config file">
+    `~/.config/bbot/bbot.yml` — your persistent personal settings.
+  </Step>
+  <Step title="Presets">
+    Settings from presets loaded with `-p`. Later presets in the list override earlier ones.
+  </Step>
+  <Step title="Command-line flags">
+    `-c` overrides everything. Highest priority.
+  </Step>
+</Steps>
+
+---
+
+## Setting config options
+
+You can set config options in `bbot.yml` or directly on the command line with `-c`. Both are equivalent:
+
+<Tabs>
+  <Tab title="Command line">
+    ```bash
+    # set an HTTP proxy
+    bbot -t evilcorp.com -c web.http_proxy=http://127.0.0.1:8080
+
+    # set a module API key
+    bbot -t evilcorp.com -f subdomain-enum -c modules.shodan_dns.api_key=deadbeef
+
+    # set multiple options
+    bbot -t evilcorp.com -c web.http_proxy=http://127.0.0.1:8080 modules.shodan_dns.api_key=deadbeef
+    ```
+  </Tab>
+  <Tab title="bbot.yml">
+    ```yaml title="~/.config/bbot/bbot.yml"
+    web:
+      http_proxy: http://127.0.0.1:8080
+
+    modules:
+      shodan_dns:
+        api_key: deadbeef
+    ```
+  </Tab>
+</Tabs>
+
+To display the full current BBOT config (including all defaults):
+
+```bash
+bbot -c
+```
+
+---
+
+## API keys
+
+Most modules that query external APIs require an API key. Set them in `bbot.yml` or in a preset:
+
+```yaml title="~/.config/bbot/bbot.yml"
+modules:
+  securitytrails:
+    api_key: 21a270d5f59c9b05813a72bb41707266
+  virustotal:
+    api_key:
+      - 4f41243847da693a4f356c0486114bc6
+      - 5bc6ed268ab6488270e496d3183a1a27
+  chaos:
+    api_key: ""
+  github:
+    api_key: ""
+  shodan_dns:
+    api_key: ""
+  bevigil:
+    api_key: ""
+  censys_dns:
+    api_key: ""
+  hunterio:
+    api_key: ""
+```
+
+<Tip>
+Some modules (like `virustotal`) support multiple API keys. Provide a list to rotate through keys automatically.
+</Tip>
+
+---
+
+## Global config options
+
+Below is the full set of global config options with their defaults.
+
+### Basic options
+
+| Option | Default | Description |
+|---|---|---|
+| `home` | `~/.bbot` | BBOT working directory |
+| `keep_scans` | `20` | How many scan result folders to keep |
+| `status_frequency` | `15` | Interval (seconds) for status messages |
+| `file_blobs` | `false` | Include raw file data (PDFs, screenshots) as base64 in events |
+| `folder_blobs` | `false` | Include raw directory data as tar.gz base64 in events |
+
+### Scope options
+
+| Option | Default | Description |
+|---|---|---|
+| `scope.strict` | `false` | Only the exact target hostnames are in-scope (no subdomains) |
+| `scope.report_distance` | `0` | How far out from scope to display events (0 = in-scope only) |
+| `scope.search_distance` | `0` | How far out to actively search (leave at 0 unless you know what you're doing) |
+
+### DNS options
+
+| Option | Default | Description |
+|---|---|---|
+| `dns.disable` | `false` | Completely disable DNS resolution |
+| `dns.minimal` | `false` | Only resolve A and AAAA records (faster) |
+| `dns.threads` | `25` | Concurrent DNS resolver instances |
+| `dns.brute_threads` | `1000` | Concurrent resolvers for brute-forcing (passed to massdns) |
+| `dns.search_distance` | `1` | How far out to resolve DNS (safe to increase) |
+| `dns.timeout` | `5` | DNS query timeout in seconds |
+| `dns.retries` | `1` | How many times to retry DNS queries |
+| `dns.wildcard_disable` | `false` | Completely disable wildcard detection |
+| `dns.wildcard_ignore` | `[]` | Disable wildcard detection for these domains |
+| `dns.wildcard_tests` | `10` | Number of sanity checks for wildcard verification |
+| `dns.abort_threshold` | `50` | Skip DNS requests after this many timeouts per domain/rdtype |
+| `dns.filter_ptrs` | `true` | Don't show PTR records that are just IP addresses |
+
+### Web options
+
+| Option | Default | Description |
+|---|---|---|
+| `web.http_proxy` | _(none)_ | HTTP proxy for all requests |
+| `web.user_agent` | Chrome/Edge UA | User-Agent string for all web requests |
+| `web.spider_distance` | `0` | Max links to follow in a row (0 = spidering disabled) |
+| `web.spider_depth` | `1` | Max directory depth for the web spider |
+| `web.spider_links_per_page` | `25` | Max links to follow per page |
+| `web.http_timeout` | `10` | HTTP timeout in seconds (Python requests) |
+| `web.httpx_timeout` | `5` | HTTP timeout in seconds (httpx) |
+| `web.http_headers` | `{}` | Custom headers attached to all in-scope HTTP requests |
+| `web.api_retries` | `2` | How many times to retry API requests |
+| `web.http_retries` | `1` | How many times to retry raw connection failures |
+| `web.http_max_redirects` | `5` | Maximum HTTP redirects to follow |
+| `web.ssl_verify` | `false` | Whether to verify SSL certificates |
+| `web.429_sleep_interval` | `30` | Seconds to sleep when rate-limited (no Retry-After header) |
+| `web.429_max_sleep_interval` | `60` | Maximum seconds to sleep when Retry-After is excessive |
+
+### Advanced options
+
+| Option | Default | Description |
+|---|---|---|
+| `module_dirs` | `[]` | Directories to load custom BBOT modules from |
+| `module_handle_event_timeout` | `3600` | Max seconds per `handle_event()` call (60 min) |
+| `module_handle_batch_timeout` | `7200` | Max seconds per `handle_batch()` call (2 hours) |
+| `speculate` | `true` | Infer events from others (e.g. IPs from IP ranges) |
+| `excavate` | `true` | Extract URLs, hosts, and emails from web responses |
+| `aggregate` | `true` | Summarize results at the end of the scan |
+| `dnsresolve` | `true` | Enable DNS resolution and wildcard detection |
+| `cloudcheck` | `true` | Tag events with their cloud provider |
+| `url_querystring_remove` | `true` | Strip query strings from URLs by default |
+| `url_querystring_collapse` | `true` | Collapse duplicate parameters to a single value |
+| `interactsh_server` | `null` | Custom Interactsh server URL |
+| `interactsh_token` | `null` | Interactsh authentication token |
+| `interactsh_disable` | `false` | Disable Interactsh integration |
+
+### Dependency handling
+
+| Option | Default | Description |
+|---|---|---|
+| `deps.behavior` | `abort_on_failure` | How to handle dependency install failures: `abort_on_failure`, `retry_failed`, `ignore_failed`, `disable` |
+
+---
+
+## Module config options
+
+Many modules accept their own config options that change their behavior. Set them under `modules.<module_name>` in your config or preset:
+
+```yaml title="~/.config/bbot/bbot.yml"
+modules:
+  portscan:
+    ports: "80,443,8080,8443"
+    rate: 300
+  dnsbrute:
+    max_depth: 3
+  nuclei:
+    severity: "critical,high"
+    ratelimit: 100
+```
+
+Or on the command line:
+
+```bash
+bbot -t evilcorp.com -m portscan -c modules.portscan.ports=80,443,8080
+```
+
+### Universal module options
+
+These options work on **any** module:
+
+| Option | Description |
+|---|---|
+| `batch_size` | Number of events to process in a single batch (batch modules only) |
+| `module_threads` | How many event handlers to run in parallel |
+| `module_timeout` | Max time in seconds to spend handling each event or batch |
+
+```bash
+# run 20 baddns threads instead of the default 8
+bbot -t evilcorp.com -m baddns -c modules.baddns.module_threads=20
+
+# increase sslcert threads
+bbot -t evilcorp.com -m sslcert -c modules.sslcert.module_threads=50
+```
+
+### Key module options
+
+<AccordionGroup>
+  <Accordion title="portscan">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.portscan.ports` | _(top ports)_ | Ports to scan |
+    | `modules.portscan.rate` | _(auto)_ | Packets per second |
+    | `modules.portscan.adapter` | _(auto)_ | Network interface (e.g. `eth0`, `tun0`) |
+  </Accordion>
+  <Accordion title="dnsbrute">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.dnsbrute.wordlist` | SecLists top-1M | Subdomain wordlist URL |
+    | `modules.dnsbrute.max_depth` | `5` | How many subdomain levels deep to brute-force |
+    | `modules.dnsbrute_mutations.max_mutations` | `100` | Max target-specific mutations per subdomain |
+  </Accordion>
+  <Accordion title="httpx">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.httpx.threads` | `50` | Number of httpx threads |
+    | `modules.httpx.in_scope_only` | `true` | Only visit in-scope URLs |
+    | `modules.httpx.store_responses` | `false` | Save raw HTTP responses to the scan folder |
+    | `modules.httpx.probe_all_ips` | `false` | Probe all IPs for the same host |
+    | `modules.httpx.max_response_size` | `5242880` | Max response size in bytes (5 MB) |
+  </Accordion>
+  <Accordion title="nuclei">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.nuclei.mode` | `manual` | `manual`, `technology`, `severe`, or `budget` |
+    | `modules.nuclei.tags` | _(none)_ | Run only templates with these tags |
+    | `modules.nuclei.templates` | _(none)_ | Template or directory paths to use |
+    | `modules.nuclei.severity` | _(none)_ | Filter by severity (e.g. `critical,high`) |
+    | `modules.nuclei.ratelimit` | `150` | Max requests per second |
+    | `modules.nuclei.concurrency` | `25` | Max parallel templates |
+    | `modules.nuclei.budget` | `1` | Max requests per host (budget mode) |
+    | `modules.nuclei.directory_only` | `true` | Only run against directory URLs |
+  </Accordion>
+  <Accordion title="gowitness">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.gowitness.resolution_x` | `1440` | Screenshot width |
+    | `modules.gowitness.resolution_y` | `900` | Screenshot height |
+    | `modules.gowitness.output_path` | _(scan dir)_ | Where to save screenshots |
+    | `modules.gowitness.social` | `false` | Screenshot social media pages |
+    | `modules.gowitness.threads` | CPU count × 2 | Number of concurrent gowitness workers |
+    | `modules.gowitness.chrome_path` | _(auto)_ | Path to Chrome executable |
+  </Accordion>
+  <Accordion title="ffuf">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.ffuf.wordlist` | raft-small-directories | Wordlist URL |
+    | `modules.ffuf.lines` | `5000` | Use only the first N lines of the wordlist |
+    | `modules.ffuf.extensions` | _(none)_ | File extensions to append to each word |
+    | `modules.ffuf.rate` | `0` | Max requests per second (0 = unlimited) |
+    | `modules.ffuf.max_depth` | `0` | Maximum directory depth to recurse |
+  </Accordion>
+  <Accordion title="baddns">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.baddns.enabled_submodules` | `[]` | Submodules to enable (empty = CNAME, TXT, MX only) |
+    | `modules.baddns.only_high_confidence` | `false` | Skip low-confidence detections |
+    | `modules.baddns.custom_nameservers` | `[]` | Force specific nameservers |
+  </Accordion>
+  <Accordion title="lightfuzz">
+    | Option | Default | Description |
+    |---|---|---|
+    | `modules.lightfuzz.enabled_submodules` | all | Vulnerability types to fuzz: `sqli`, `cmdi`, `xss`, `path`, `ssti`, `crypto`, `serial`, `esi` |
+    | `modules.lightfuzz.disable_post` | `false` | Skip POST request fuzzing |
+    | `modules.lightfuzz.avoid_wafs` | `true` | Skip hosts with detected WAFs |
+    | `modules.lightfuzz.try_post_as_get` | `false` | Fuzz POST params as GET params too |
+    | `modules.lightfuzz.try_get_as_post` | `false` | Fuzz GET params as POST params too |
+    | `modules.lightfuzz.force_common_headers` | `false` | Fuzz headers like X-Forwarded-For even if not observed |
+  </Accordion>
+</AccordionGroup>
+
+To see all module options:
+
+```bash
+bbot -lmo
+
+# or get help for a specific module
+bbot -mh nuclei
+```

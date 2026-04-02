@@ -1,0 +1,515 @@
+---
+title: "BaseModule"
+description: "BaseModule is the base class for all BBOT modules. Subclass it to build custom scan modules that watch for events, process them, and emit new ones."
+---
+
+## Overview
+
+Every BBOT module inherits from `BaseModule`. You declare what events your module cares about, implement `handle_event()` (or `handle_batch()` for bulk processing), and call `await self.emit_event()` to produce new findings.
+
+```python
+from bbot.modules.base import BaseModule
+
+class MyModule(BaseModule):
+    watched_events = ["DNS_NAME"]
+    produced_events = ["URL_UNVERIFIED"]
+    flags = ["passive", "safe"]
+    meta = {"description": "Emit HTTP and HTTPS URLs for every DNS name"}
+
+    async def handle_event(self, event):
+        for scheme in ("http", "https"):
+            await self.emit_event(
+                f"{scheme}://{event.data}",
+                parent=event,
+            )
+```
+
+## Class attributes
+
+Declare these as class-level variables. They configure the module's behavior without requiring you to write `__init__`.
+
+### Event filtering
+
+<ResponseField name="watched_events" type="list[str]" default="[]">
+  Event types this module receives. Use `["*"]` to watch all types.
+
+  ```python
+  watched_events = ["DNS_NAME", "IP_ADDRESS"]
+  ```
+</ResponseField>
+
+<ResponseField name="produced_events" type="list[str]" default="[]">
+  Event types this module may emit. Informational — used for documentation and module graph generation.
+
+  ```python
+  produced_events = ["URL_UNVERIFIED", "FINDING"]
+  ```
+</ResponseField>
+
+<ResponseField name="flags" type="list[str]" default="[]">
+  Module flags. Must include at least one scope (`"passive"` or `"active"`) and one risk (`"safe"` or `"aggressive"`) flag.
+
+  ```python
+  flags = ["active", "safe", "web-basic"]
+  ```
+</ResponseField>
+
+<ResponseField name="meta" type="dict" default='{"auth_required": False, "description": "Base module"}'>
+  Metadata dictionary. Include `"description"` and optionally `"auth_required"`.
+
+  ```python
+  meta = {
+      "description": "Enumerate DNS records via brute force",
+      "auth_required": False,
+  }
+  ```
+</ResponseField>
+
+### Options and configuration
+
+<ResponseField name="options" type="dict" default="{}">
+  Configurable module options with their default values. Available at runtime via `self.config`.
+
+  ```python
+  options = {
+      "api_key": "",
+      "timeout": 10,
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="options_desc" type="dict" default="{}">
+  Human-readable descriptions for each option in `options`.
+
+  ```python
+  options_desc = {
+      "api_key": "API key for the service",
+      "timeout": "Request timeout in seconds",
+  }
+  ```
+</ResponseField>
+
+### Dependencies
+
+<ResponseField name="deps_pip" type="list[str]" default="[]">
+  Python packages to install via pip before the module runs.
+
+  ```python
+  deps_pip = ["boto3", "requests"]
+  ```
+</ResponseField>
+
+<ResponseField name="deps_apt" type="list[str]" default="[]">
+  APT packages to install before the module runs.
+
+  ```python
+  deps_apt = ["nmap", "masscan"]
+  ```
+</ResponseField>
+
+<ResponseField name="deps_shell" type="list[str]" default="[]">
+  Shell commands to run for dependencies not covered by pip or apt. Uses Ansible's `shell` module.
+</ResponseField>
+
+<ResponseField name="deps_ansible" type="list[dict]" default="[]">
+  Full Ansible task definitions for complex dependency installation.
+</ResponseField>
+
+<ResponseField name="deps_modules" type="list[str]" default="[]">
+  Other BBOT modules this module depends on. They are automatically enabled.
+
+  ```python
+  deps_modules = ["httpx"]
+  ```
+</ResponseField>
+
+### Deduplication and event acceptance
+
+<ResponseField name="accept_dupes" type="bool" default="False">
+  When `True`, the module receives duplicate incoming events (same data, same type) more than once.
+</ResponseField>
+
+<ResponseField name="suppress_dupes" type="bool" default="True">
+  When `True`, the module suppresses duplicate outgoing events.
+</ResponseField>
+
+<ResponseField name="per_host_only" type="bool" default="False">
+  Process each unique host at most once per scan.
+</ResponseField>
+
+<ResponseField name="per_hostport_only" type="bool" default="False">
+  Process each unique `host:port` combination at most once per scan.
+</ResponseField>
+
+<ResponseField name="per_domain_only" type="bool" default="False">
+  Process each unique registered domain at most once per scan.
+</ResponseField>
+
+### Scope control
+
+<ResponseField name="scope_distance_modifier" type="int or None" default="0">
+  Adjusts the maximum scope distance for incoming events.
+
+  ```
+  None  → accept events at any scope distance
+  2     → accept up to (scan search distance + 2)
+  1     → accept up to (scan search distance + 1)
+  0     → accept up to the scan's configured search distance (default)
+  ```
+</ResponseField>
+
+<ResponseField name="target_only" type="bool" default="False">
+  When `True`, only accept events tagged `"target"` (i.e. the initial seed events).
+</ResponseField>
+
+<ResponseField name="in_scope_only" type="bool" default="False">
+  When `True`, only accept events that are explicitly in scope (scope distance 0), regardless of the scan's search distance.
+</ResponseField>
+
+<ResponseField name="accept_url_special" type="bool" default="False">
+  When `True`, accept "special" URLs (e.g., `.js` files) that are otherwise filtered out for web modules.
+</ResponseField>
+
+### Performance
+
+<ResponseField name="module_threads" type="int" default="1">
+  Maximum number of concurrent `handle_event()` (or `handle_batch()`) invocations.
+</ResponseField>
+
+<ResponseField name="batch_size" type="int" default="1">
+  Number of events to collect before calling `handle_batch()`. When set to `1`, `handle_event()` is called instead.
+</ResponseField>
+
+<ResponseField name="api_failure_abort_threshold" type="int">
+  Number of consecutive API failures (via `api_request()`) before the module sets an error state and stops processing. Computed from `_api_failure_abort_threshold` and the number of API keys.
+</ResponseField>
+
+## Methods to override
+
+Implement these methods in your subclass to add custom behavior.
+
+### `setup()`
+
+```python
+async def setup(self) -> bool | tuple[bool | None, str]
+```
+
+Called once before the scan starts. Use it to validate configuration, fetch resources, and test API keys.
+
+- Return `True` for success.
+- Return `(None, "reason")` for a soft-fail: the module is disabled but the scan continues.
+- Return `(False, "reason")` for a hard-fail: the scan is aborted.
+
+```python
+async def setup(self):
+    self.api_key = self.config.get("api_key", "")
+    if not self.api_key:
+        return None, "No API key specified"
+    return True
+```
+
+---
+
+### `handle_event(event)`
+
+```python
+async def handle_event(self, event) -> None
+```
+
+Called for each incoming event that matches `watched_events`. Override this when `batch_size == 1` (the default).
+
+```python
+async def handle_event(self, event):
+    response = await self.helpers.request(f"https://api.example.com/?q={event.data}")
+    if response and response.status_code == 200:
+        for subdomain in response.json().get("subdomains", []):
+            await self.emit_event(subdomain, parent=event)
+```
+
+---
+
+### `handle_batch(*events)`
+
+```python
+async def handle_batch(self, *events) -> None
+```
+
+Called when `batch_size > 1` and a batch of events is ready. Override this instead of `handle_event()`.
+
+```python
+batch_size = 50
+
+async def handle_batch(self, *events):
+    hosts = [e.data for e in events]
+    results = await self.bulk_lookup(hosts)
+    for result in results:
+        await self.emit_event(result, parent=events[0])
+```
+
+---
+
+### `filter_event(event)`
+
+```python
+async def filter_event(self, event) -> bool | tuple[bool, str]
+```
+
+Called for each event before `handle_event()`. Return `False` (or `(False, "reason")`) to skip the event.
+
+```python
+async def filter_event(self, event):
+    if event.data.endswith(".internal"):
+        return False, "skipping internal domains"
+    return True
+```
+
+---
+
+### `finish()`
+
+```python
+async def finish(self) -> None
+```
+
+Called once when the scan nears completion. Use it to process deferred work, such as running bulk lookups after the word cloud is populated. May be called multiple times if it emits new events.
+
+```python
+async def finish(self):
+    wordlist = self.helpers.word_cloud.mutations("evilcorp")
+    async for mutation in self.brute_force(wordlist):
+        await self.emit_event(mutation, parent=self.scan.root_event)
+```
+
+---
+
+### `report()`
+
+```python
+async def report(self) -> None
+```
+
+Called once after the scan is complete but before cleanup. Use it to emit summary events or write reports.
+
+---
+
+### `cleanup()`
+
+```python
+async def cleanup(self) -> None
+```
+
+Called once after the scan is complete. Use it to release resources. Cannot emit events.
+
+## Helper methods
+
+These methods are available on `self` inside any module.
+
+### Emitting events
+
+#### `emit_event(*args, **kwargs)`
+
+```python
+async def emit_event(data_or_event, *, parent=None, tags=None, context=None, ...) -> BaseEvent
+```
+
+Emit a new event to the scan pipeline. This is how modules "return" data.
+
+```python
+# Emit from raw data (type auto-detected)
+await self.emit_event("www.evilcorp.com", parent=event)
+
+# Emit with tags and context
+await self.emit_event(
+    "1.2.3.4",
+    parent=event,
+    tags=["affiliate"],
+    context="nmap discovered {event.type}: {event.data}",
+)
+
+# Emit an already-created event
+new_event = self.make_event("https://evilcorp.com", parent=event)
+await self.emit_event(new_event)
+```
+
+#### `make_event(*args, **kwargs)`
+
+```python
+def make_event(data, event_type=None, *, parent=None, ...) -> BaseEvent | None
+```
+
+Create an event object without emitting it. Returns `None` on validation failure (unless `raise_error=True`).
+
+```python
+new_event = self.make_event("1.2.3.4", parent=event)
+if new_event:
+    await self.emit_event(new_event)
+```
+
+### API requests
+
+#### `api_request(url, **kwargs)`
+
+```python
+async def api_request(url, **kwargs) -> httpx.Response
+```
+
+Make an authenticated HTTP request with automatic rate-limit handling, API key cycling, and abort-on-failure logic. Preferred over `self.helpers.request()` for API-based modules.
+
+```python
+response = await self.api_request(
+    f"https://api.example.com/subdomains?domain={event.data}"
+)
+if response and response.status_code == 200:
+    for subdomain in response.json().get("results", []):
+        await self.emit_event(subdomain, parent=event)
+```
+
+#### `api_page_iter(url, page_size=100, **kwargs)`
+
+```python
+async def api_page_iter(url, page_size=100, _json=True, ...) -> AsyncGenerator
+```
+
+Iterate through paginated API results automatically.
+
+```python
+agen = self.api_page_iter(
+    "https://api.example.com/data?page={page}&page_size={page_size}"
+)
+try:
+    async for page in agen:
+        items = page.get("items", [])
+        if not items:
+            break
+        for item in items:
+            await self.emit_event(item["domain"], parent=event)
+finally:
+    await agen.aclose()
+```
+
+### Logging
+
+All logging methods accept `*args` and an optional `trace=True` flag to attach the current exception traceback.
+
+| Method | Level | Notes |
+|---|---|---|
+| `self.debug(msg)` | DEBUG | Verbose low-level messages. |
+| `self.verbose(msg)` | VERBOSE | Shown with `--verbose`. |
+| `self.info(msg)` | INFO | Standard informational output. |
+| `self.success(msg)` | SUCCESS | Green — indicates successful findings. |
+| `self.hugesuccess(msg)` | HUGESUCCESS | Bold green — very prominent. |
+| `self.warning(msg)` | WARNING | Orange — something unusual happened. |
+| `self.hugewarning(msg)` | HUGEWARNING | Bold orange. |
+| `self.error(msg)` | ERROR | Red — something failed. |
+| `self.critical(msg)` | CRITICAL | Bold red — critical failures. |
+| `self.trace()` | TRACE | Always written to `debug.log`. |
+
+```python
+self.info(f"Found {len(results)} subdomains for {event.data}")
+self.warning("API key is missing; skipping enrichment")
+
+try:
+    await risky_operation()
+except Exception:
+    self.warning("Operation failed", trace=True)
+```
+
+### Running subprocesses
+
+Inside a module, use `run_process` / `run_process_live` instead of calling `self.helpers.run()` directly. These wrappers track the subprocess under the module so it can be terminated if the scan is killed.
+
+#### `run_process(*args, **kwargs)`
+
+```python
+async def run_process(*args, **kwargs) -> CompletedProcess
+```
+
+Run a subprocess and return when it completes.
+
+```python
+result = await self.run_process("nmap", "-p", "80,443", event.data)
+for line in result.stdout.splitlines():
+    self.debug(line)
+```
+
+#### `run_process_live(*args, **kwargs)`
+
+```python
+async def run_process_live(*args, **kwargs) -> AsyncGenerator[str, None]
+```
+
+Iterate over subprocess output line by line in real time.
+
+```python
+async for line in self.run_process_live(["masscan", "--rate=1000", event.data]):
+    if "open" in line:
+        await self.emit_event(line.split()[3], parent=event)
+```
+
+### Accessing helpers
+
+`self.helpers` gives you access to all BBOT helper utilities:
+
+```python
+# Web request
+response = await self.helpers.request("https://evilcorp.com")
+
+# DNS resolution
+ips = await self.helpers.dns.resolve("evilcorp.com")
+
+# Random string
+rand = self.helpers.rand_string(12)
+
+# Parse domain
+subdomain, domain = self.helpers.split_domain("www.evilcorp.com")
+
+# Word cloud
+words = self.helpers.word_cloud.mutations("evilcorp")
+```
+
+See the [Helpers reference](/dev/helpers) for the full API.
+
+## Full module example
+
+```python
+from bbot.modules.base import BaseModule
+
+class MyAPIModule(BaseModule):
+    watched_events = ["DNS_NAME"]
+    produced_events = ["IP_ADDRESS", "FINDING"]
+    flags = ["active", "safe"]
+    meta = {
+        "description": "Enrich DNS names via the Example API",
+        "auth_required": True,
+    }
+    options = {"api_key": ""}
+    options_desc = {"api_key": "Example API key"}
+
+    async def setup(self):
+        self.api_key = self.config.get("api_key", "")
+        if not self.api_key:
+            return None, "No API key configured"
+        # verify the API key works
+        r = await self.api_request("https://api.example.com/ping")
+        if not r or r.status_code != 200:
+            return None, "Could not reach the API"
+        return True
+
+    async def filter_event(self, event):
+        # only process second-level domains
+        if not self.helpers.is_domain(event.data):
+            return False, "not a registered domain"
+        return True
+
+    async def handle_event(self, event):
+        r = await self.api_request(
+            f"https://api.example.com/ips?domain={event.data}"
+        )
+        if r is None or r.status_code != 200:
+            return
+        for ip in r.json().get("ips", []):
+            await self.emit_event(ip, parent=event)
+
+    async def cleanup(self):
+        self.info("MyAPIModule cleanup complete")
+```

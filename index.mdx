@@ -1,97 +1,76 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "BBOT — The Recursive Internet Scanner"
+description: "Automate recon, bug bounties, and attack surface management with a recursive, event-driven scanner built for hackers."
 ---
 
-## Setting up
+BBOT is a multipurpose scanner that recursively discovers your entire attack surface. With 100+ modules covering subdomain enumeration, web scanning, OSINT, cloud asset discovery, and more — BBOT finds what other tools miss.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Install BBOT and run your first scan in under 5 minutes.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="How It Works" icon="diagram-project" href="/how-it-works">
+    Understand the recursive, event-driven engine that powers BBOT.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Scanning Guide" icon="radar" href="/scanning/overview">
+    Learn targets, modules, flags, presets, scope, and output options.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Module List" icon="puzzle-piece" href="/modules/list-of-modules">
+    Browse all 100+ built-in modules for recon and attack surface management.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What BBOT does
 
-Everything you need to create world-class documentation.
+BBOT seeds a scan with one or more targets — domains, IPs, CIDR ranges, URLs, emails, GitHub orgs — then spiders outwards recursively. Each module consumes events from other modules and produces new ones, creating a self-reinforcing web of discovery.
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+```bash
+# Find subdomains of evilcorp.com
+bbot -t evilcorp.com -p subdomain-enum
 
-## Need inspiration?
+# Run a full web scan
+bbot -t www.evilcorp.com -p web-thorough
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+# Scan everything, everywhere, all at once
+bbot -t evilcorp.com -p kitchen-sink --allow-deadly
+```
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card title="Subdomain Enumeration" icon="sitemap" href="/scanning/presets">
+    Passive API sources plus recursive DNS brute-force with NLP-powered subdomain mutations. Consistently finds 20–50% more subdomains than other tools.
+  </Card>
+  <Card title="Web Scanning" icon="globe" href="/modules/nuclei">
+    Web crawling, parameter mining, Nuclei templates, LightFuzz, BadSecrets, and more — covering the full web attack surface.
+  </Card>
+  <Card title="OSINT & Cloud Enum" icon="cloud" href="/scanning/presets">
+    Enumerate cloud assets across AWS, GCP, and Azure. Harvest emails, code repositories, leaked credentials, and social profiles.
+  </Card>
+  <Card title="Flexible Output" icon="database" href="/scanning/output">
+    Output to Neo4j, Postgres, Elasticsearch, CSV, JSON, Slack, Discord, Teams, and more — simultaneously.
+  </Card>
+  <Card title="Python API" icon="python" href="/dev/index">
+    Embed BBOT scans directly in your Python applications with a clean sync or async API.
+  </Card>
+  <Card title="Custom Modules" icon="code" href="/dev/module-howto">
+    Write your own modules in Python with a simple, well-documented base class.
+  </Card>
+</CardGroup>
+
+## Developer reference
+
+<CardGroup cols={2}>
+  <Card title="Python API" icon="code" href="/dev/scanner">
+    Full Scanner class reference — start scans, iterate events, and control execution.
+  </Card>
+  <Card title="Write a Module" icon="wrench" href="/dev/module-howto">
+    Step-by-step guide to building a custom BBOT module.
+  </Card>
+  <Card title="Architecture" icon="network-wired" href="/dev/architecture">
+    Deep dive into BBOT's internal event-driven architecture.
+  </Card>
+  <Card title="BaseModule Reference" icon="cube" href="/dev/basemodule">
+    All attributes, hooks, and methods available in custom modules.
+  </Card>
+</CardGroup>

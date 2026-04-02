@@ -1,0 +1,76 @@
+---
+title: "How It Works"
+description: "BBOT's recursive, event-driven architecture — and why it finds more than other tools."
+---
+
+## The recursive philosophy
+
+Good recon is recursive recon. A subdomain leads to an open port. That port exposes a TLS certificate. That certificate reveals another subdomain you didn't know about. That subdomain has its own open ports, certificates, and web endpoints — and so on.
+
+Most tools handle only one layer of this chain. BBOT is designed to handle all of them, automatically.
+
+BBOT inherits its recursive philosophy from [Spiderfoot](https://github.com/smicallef/spiderfoot): it is **event-driven**. Each of BBOT's 100+ modules *consumes* a certain type of event, uses it to discover something new, and *produces* new events. Those events are distributed to all other modules, which in turn produce more events. This cycle repeats — thousands of times during a single scan — spidering outward in a recursive web of discovery.
+
+## How modules work together
+
+Each BBOT module does exactly one thing: query an API, run a tool like `nuclei`, brute-force DNS names, or crawl a web page. Modules are carefully designed to interoperate inside BBOT's event-driven system.
+
+Consider two modules:
+
+- **`portscan`** consumes `DNS_NAME` events and produces `OPEN_TCP_PORT` events.
+- **`sslcert`** consumes `OPEN_TCP_PORT` events and produces `DNS_NAME` events.
+
+When you enable both modules, they feed each other recursively:
+
+```
+DNS_NAME → portscan → OPEN_TCP_PORT → sslcert → DNS_NAME → portscan → ...
+```
+
+A new hostname discovered via a TLS certificate immediately gets port-scanned. Any new ports discovered get their certificates read, revealing more hostnames — and the cycle continues until there's nothing left to find.
+
+<Info>
+  Because of this recursive loop, enabling even a single additional module can increase your results exponentially. This is exactly how BBOT consistently outperforms tools that only make one pass over a target.
+</Info>
+
+## Event types
+
+Every piece of data in BBOT is an **event**. Modules produce and consume typed events. The most common event types include:
+
+| Event type | Description |
+|---|---|
+| `DNS_NAME` | A hostname or subdomain, e.g. `www.evilcorp.com` |
+| `IP_ADDRESS` | An IPv4 or IPv6 address |
+| `OPEN_TCP_PORT` | A reachable TCP port, e.g. `1.2.3.4:443` |
+| `URL` | A live HTTP/HTTPS URL |
+| `URL_UNVERIFIED` | A URL extracted from content, not yet confirmed live |
+| `EMAIL_ADDRESS` | A discovered email address |
+| `HTTP_RESPONSE` | A full HTTP response from a web request |
+| `FINDING` | A notable discovery (misconfiguration, exposed secret, etc.) |
+| `VULNERABILITY` | A confirmed vulnerability |
+| `STORAGE_BUCKET` | A cloud storage bucket (S3, GCS, Azure Blob, etc.) |
+| `SOCIAL` | A social media profile or username |
+| `CODE_REPOSITORY` | A discovered code repository (GitHub, GitLab, etc.) |
+
+## Why BBOT finds more
+
+Other subdomain enumeration tools typically do one of the following:
+
+- Query passive DNS APIs
+- Brute-force DNS names from a wordlist
+
+BBOT does both — and then goes further. Its `dnsbrute_mutations` module uses **NLP-powered subdomain mutations** to generate target-specific guesses based on the subdomains it has already found. Discovering `dev.evilcorp.com` might generate candidates like `dev2.evilcorp.com`, `dev-api.evilcorp.com`, and `staging-dev.evilcorp.com`.
+
+Combined with the recursive loop described above — where SSL certificates feed DNS brute-forcing and vice versa — BBOT typically finds **20–50% more subdomains** than other tools. The advantage grows larger with bigger targets.
+
+## What happens during a scan
+
+1. You provide one or more **targets** (domains, IPs, URLs, etc.).
+2. BBOT seeds the scan by emitting initial events for each target.
+3. Enabled modules pick up those events and start running.
+4. Each module's output is emitted as new events and distributed to all other modules.
+5. The cycle repeats until no module has anything left to process.
+6. Results are written to your configured output modules (files, databases, webhooks, etc.).
+
+<Tip>
+  To go deeper on BBOT's internal event routing, queuing, and concurrency model, see the [Architecture](/dev/architecture) reference.
+</Tip>

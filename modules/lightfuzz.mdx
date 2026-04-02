@@ -1,0 +1,81 @@
+---
+title: "LightFuzz"
+description: "BBOT's built-in lightweight web vulnerability fuzzer, designed to find low-hanging fruit at massive scale across your entire attack surface."
+---
+
+LightFuzz is a lightweight web vulnerability scanner built into BBOT. It is designed to find common vulnerabilities at scale — across every web parameter discovered during a scan — without the overhead of a full application scanner.
+
+<Warning>
+LightFuzz is a **deadly** module. Pass `--allow-deadly` to enable it. LightFuzz is experimental — false positives are possible. If you find one, please [open a GitHub issue](https://github.com/blacklanternsecurity/bbot/issues).
+</Warning>
+
+<Info>
+LightFuzz is not a replacement for Burp Suite or a full web application scanner. It identifies likely vulnerabilities and hands them off to you — exploitation and confirmation are your job.
+</Info>
+
+## Submodules
+
+LightFuzz is split into focused submodules, each targeting a different vulnerability class:
+
+| Submodule | Vulnerability |
+|---|---|
+| `xss` | Cross-site scripting (between-tags, attribute, JavaScript contexts) |
+| `sqli` | SQL injection — error-based and blind time-delay |
+| `cmdi` | Command injection — blind OOB via Interactsh |
+| `ssti` | Server-side template injection |
+| `path` | Path traversal / local file inclusion |
+| `serial` | Deserialization vulnerabilities across multiple platforms |
+| `crypto` | Cryptographic parameter detection, padding oracle, hash length extension |
+
+## Presets
+
+LightFuzz ships with built-in presets that configure all the necessary BBOT settings. Use one of these rather than enabling modules manually.
+
+<AccordionGroup>
+  <Accordion title="-p lightfuzz-light">
+    Minimal preset. Checks for only the most common vulnerabilities using a subset of submodules. Safest choice for large-scale scans.
+  </Accordion>
+  <Accordion title="-p lightfuzz-medium (recommended)">
+    Default setting. Enables all submodules with the necessary config. **POST request fuzzing is disabled** — POST parameters are more intrusive and risky, especially in internal networks.
+  </Accordion>
+  <Accordion title="-p lightfuzz-heavy">
+    Increases web spider settings, adds the Param Miner suite (`paramminer_getparams`, `paramminer_headers`, `paramminer_cookies`) to discover additional parameters by brute-force, and enables POST parameter fuzzing.
+  </Accordion>
+  <Accordion title="-p lightfuzz-superheavy">
+    Everything in `lightfuzz-heavy`, plus:
+    - Query string collapsing disabled (each duplicate parameter fuzzed individually)
+    - Common headers force-fuzzed even if not discovered
+    - GET parameters speculated from JSON/XML response bodies
+
+    These settings add significant scan time and are not typically needed.
+  </Accordion>
+  <Accordion title="-p lightfuzz-xss">
+    Focused exclusively on XSS. Includes `paramminer_getparams` to find undocumented parameters. A fast option for dedicated XSS hunting.
+  </Accordion>
+</AccordionGroup>
+
+## Usage
+
+```bash
+# Standard LightFuzz scan (recommended)
+bbot -p lightfuzz-medium spider -t targets.txt --allow-deadly
+
+# LightFuzz with subdomain enumeration
+bbot -p lightfuzz-medium spider subdomain-enum -t evilcorp.com --allow-deadly
+
+# XSS only
+bbot -p lightfuzz-medium -t targets.txt \
+  -c modules.lightfuzz.enabled_submodules=[xss] --allow-deadly
+
+# XSS and SQLi only
+bbot -p lightfuzz-medium -t targets.txt \
+  -c modules.lightfuzz.enabled_submodules=[xss,sqli] --allow-deadly
+```
+
+<Tip>
+Always run LightFuzz with the `spider` preset. Without it, far fewer web parameters are discovered and LightFuzz will have much less to fuzz. BBOT will warn you if the spider is not enabled.
+</Tip>
+
+## Output
+
+Most LightFuzz findings are emitted as `FINDING` events (unconfirmed, requiring manual verification). A subset of high-confidence detections emit as `VULNERABILITY` events.

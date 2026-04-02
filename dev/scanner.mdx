@@ -1,0 +1,336 @@
+---
+title: "Scanner"
+description: "The Scanner class is the main entry point for running BBOT scans programmatically. It accepts targets, modules, flags, and config, then exposes sync and async iteration over discovered events."
+---
+
+## Overview
+
+`Scanner` orchestrates a full BBOT scan. Pass targets and options directly to its constructor, then iterate over events using `start()` (synchronous) or `async_start()` (asynchronous).
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner("evilcorp.com", modules=["portscan", "sslcert", "httpx"])
+for event in scan.start():
+    print(event)
+```
+
+## Constructor
+
+```python
+Scanner(*targets, name=None, scan_id=None, preset=None, dispatcher=None, **kwargs)
+```
+
+`Scanner` passes all unrecognized keyword arguments through to `Preset`. You can therefore use any `Preset` parameter directly on `Scanner`.
+
+<ParamField path="*targets" type="str" optional>
+  One or more scan targets. Accepts domains, IPs, CIDR ranges, URLs, email addresses, and open ports (e.g. `"evilcorp.com"`, `"1.2.3.0/24"`, `"https://evilcorp.com"`).
+</ParamField>
+
+<ParamField path="name" type="str" optional>
+  Human-readable name for the scan. Defaults to a random two-word name such as `"demonic_jimmy"`.
+</ParamField>
+
+<ParamField path="scan_id" type="str" optional>
+  Unique identifier for the scan. Auto-generated as `SCAN:<sha1>` if not provided.
+</ParamField>
+
+<ParamField path="preset" type="Preset" optional>
+  A pre-built `Preset` object to use for this scan. When provided, it is merged with any other keyword arguments.
+</ParamField>
+
+<ParamField path="dispatcher" type="Dispatcher" optional>
+  A `Dispatcher` object that receives lifecycle callbacks (e.g. `on_start`, `on_status`). Defaults to a new `Dispatcher` instance.
+</ParamField>
+
+<ParamField path="modules" type="list[str]" optional>
+  Scan modules to enable, e.g. `["portscan", "httpx"]`.
+</ParamField>
+
+<ParamField path="output_modules" type="list[str]" optional>
+  Output modules to enable. Defaults to `csv`, `txt`, and `json`.
+</ParamField>
+
+<ParamField path="flags" type="list[str]" optional>
+  Enable all modules that carry these flags, e.g. `["subdomain-enum"]`.
+</ParamField>
+
+<ParamField path="exclude_modules" type="list[str]" optional>
+  Modules to exclude even if they would otherwise be enabled.
+</ParamField>
+
+<ParamField path="exclude_flags" type="list[str]" optional>
+  Exclude any module that has any of these flags.
+</ParamField>
+
+<ParamField path="require_flags" type="list[str]" optional>
+  Only enable modules that have all of these flags.
+</ParamField>
+
+<ParamField path="whitelist" type="list[str]" optional>
+  Restrict output to hosts within this list. Defaults to the same hosts as `targets`.
+</ParamField>
+
+<ParamField path="blacklist" type="list[str]" optional>
+  Never interact with or emit events for hosts in this list.
+</ParamField>
+
+<ParamField path="config" type="dict" optional>
+  Additional configuration overrides. Merged on top of the global BBOT config. Example: `{"web": {"http_proxy": "http://127.0.0.1:8080"}}`.
+</ParamField>
+
+<ParamField path="output_dir" type="str or Path" optional>
+  Directory to write scan output files. Defaults to `~/.bbot/scans/<scan_name>`.
+</ParamField>
+
+<ParamField path="presets" type="list[str]" optional>
+  Names or filenames of built-in BBOT presets to include, e.g. `["subdomain-enum"]`. Alias for the `include` Preset parameter.
+</ParamField>
+
+## Attributes
+
+<ResponseField name="status" type="str">
+  Current scan status. Read the [scan status values](#scan-status-values) section for all possible states.
+</ResponseField>
+
+<ResponseField name="id" type="str">
+  Unique scan identifier in the format `SCAN:<sha1>`.
+</ResponseField>
+
+<ResponseField name="name" type="str">
+  Human-readable scan name (alias to `self.preset.scan_name`).
+</ResponseField>
+
+<ResponseField name="target" type="BBOTTarget">
+  The scan target, containing `seeds`, `whitelist`, and `blacklist` sub-targets (alias to `self.preset.target`).
+</ResponseField>
+
+<ResponseField name="preset" type="Preset">
+  The baked `Preset` used by this scan.
+</ResponseField>
+
+<ResponseField name="config" type="omegaconf.DictConfig">
+  Full BBOT configuration (alias to `self.preset.config`).
+</ResponseField>
+
+<ResponseField name="whitelist" type="ScanWhitelist">
+  The scan whitelist target (alias to `self.preset.whitelist`).
+</ResponseField>
+
+<ResponseField name="blacklist" type="ScanBlacklist">
+  The scan blacklist target (alias to `self.preset.blacklist`).
+</ResponseField>
+
+<ResponseField name="helpers" type="ConfigAwareHelper">
+  Helper object exposing web, DNS, misc, and command utilities (alias to `self.preset.helpers`).
+</ResponseField>
+
+<ResponseField name="modules" type="dict[str, BaseModule]">
+  All loaded modules keyed by module name. Populated after the scan starts.
+</ResponseField>
+
+<ResponseField name="home" type="pathlib.Path">
+  Base output directory for the scan (default: `~/.bbot/scans/<scan_name>`).
+</ResponseField>
+
+<ResponseField name="stats" type="ScanStats">
+  High-level statistics: events produced and consumed per module.
+</ResponseField>
+
+<ResponseField name="running" type="bool">
+  `True` while the scan is actively running.
+</ResponseField>
+
+<ResponseField name="stopping" type="bool">
+  `True` while the scan is in the process of stopping.
+</ResponseField>
+
+<ResponseField name="stopped" type="bool">
+  `True` after the scan has fully stopped.
+</ResponseField>
+
+<ResponseField name="aborting" type="bool">
+  `True` if the scan is aborted or currently aborting.
+</ResponseField>
+
+<ResponseField name="start_time" type="datetime.datetime">
+  Time the scan started. `None` until the scan begins.
+</ResponseField>
+
+<ResponseField name="end_time" type="datetime.datetime">
+  Time the scan finished. `None` until the scan completes.
+</ResponseField>
+
+<ResponseField name="duration_seconds" type="float">
+  Elapsed scan time in seconds. `None` until the scan completes.
+</ResponseField>
+
+## Methods
+
+### `start()`
+
+```python
+def start() -> Generator[BaseEvent, None, None]
+```
+
+Run the scan synchronously, yielding events as they are discovered. Use this in scripts that are not inside an existing event loop.
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner("evilcorp.com", modules=["portscan", "httpx"])
+for event in scan.start():
+    print(event.type, event.data)
+```
+
+---
+
+### `async_start()`
+
+```python
+async def async_start() -> AsyncGenerator[BaseEvent, None]
+```
+
+Run the scan asynchronously, yielding events as they are discovered. Use this inside an existing `asyncio` event loop (FastAPI, Jupyter, etc.).
+
+```python
+import asyncio
+from bbot.scanner import Scanner
+
+async def main():
+    scan = Scanner("evilcorp.com", modules=["portscan", "httpx"])
+    async for event in scan.async_start():
+        print(event.type, event.data)
+
+asyncio.run(main())
+```
+
+---
+
+### `start_without_generator()`
+
+```python
+def start_without_generator() -> None
+```
+
+Run the scan synchronously without consuming or yielding events. Useful when you only care about output module side-effects (files, databases).
+
+```python
+scan = Scanner("evilcorp.com", modules=["portscan"], output_modules=["json"])
+scan.start_without_generator()
+```
+
+---
+
+### `async_start_without_generator()`
+
+```python
+async def async_start_without_generator() -> None
+```
+
+Async equivalent of `start_without_generator()`.
+
+```python
+await scan.async_start_without_generator()
+```
+
+## Scan status values
+
+The `status` attribute is a string that tracks the scan's current lifecycle phase. Each status maps to an integer code stored in `_status_codes`.
+
+| Status | Code | Description |
+|---|---|---|
+| `NOT_STARTED` | 0 | Initial state before the scan starts. |
+| `STARTING` | 1 | Modules are being initialized. |
+| `RUNNING` | 2 | The scan is actively discovering events. |
+| `FINISHING` | 3 | All modules are finishing up. |
+| `CLEANING_UP` | 4 | Resources are being released. |
+| `ABORTING` | 5 | The scan is being aborted. |
+| `ABORTED` | 6 | The scan has been aborted. |
+| `FAILED` | 7 | A critical error stopped the scan. |
+| `FINISHED` | 8 | The scan completed successfully. |
+
+<Note>
+  Once `status` is set to `ABORTING`, it cannot be changed until the scan transitions to `ABORTED`. Setting an invalid status is logged but not applied.
+</Note>
+
+## Usage examples
+
+### Synchronous
+
+```python
+from bbot.scanner import Scanner
+
+if __name__ == "__main__":
+    scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+    for event in scan.start():
+        print(event)
+```
+
+### Asynchronous
+
+```python
+import asyncio
+from bbot.scanner import Scanner
+
+async def main():
+    scan = Scanner("evilcorp.com", presets=["subdomain-enum"])
+    async for event in scan.async_start():
+        print(event.json())
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### Custom config with proxy
+
+```python
+from bbot.scanner import Scanner
+
+config = {
+    "web": {"http_proxy": "http://127.0.0.1:8080"},
+    "modules": {"portscan": {"top_ports": 2000}},
+}
+
+scan = Scanner(
+    "www.evilcorp.com",
+    modules=["portscan", "httpx"],
+    config=config,
+)
+
+for event in scan.start():
+    print(event)
+```
+
+### With whitelist and blacklist
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner(
+    "evilcorp.com",
+    presets=["subdomain-enum"],
+    whitelist=["evilcorp.com", "evilcorp.org"],
+    blacklist=["prod.evilcorp.com"],
+)
+
+for event in scan.start():
+    print(event)
+```
+
+### Using a pre-built Preset
+
+```python
+from bbot.scanner import Scanner, Preset
+
+preset = Preset(
+    "evilcorp.com",
+    flags=["subdomain-enum"],
+    modules=["nuclei"],
+    config={"web": {"http_proxy": "http://127.0.0.1"}},
+)
+
+scan = Scanner(preset=preset)
+for event in scan.start():
+    print(event)
+```

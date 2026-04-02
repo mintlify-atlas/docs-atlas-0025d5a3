@@ -1,0 +1,277 @@
+---
+title: "List of Modules"
+description: "A complete reference for every BBOT module, organized by type and flag."
+---
+
+BBOT ships with a large library of modules covering subdomain enumeration, web scanning, OSINT, cloud enumeration, output formats, and more. You can view the full list at any time from the command line:
+
+```bash
+bbot -l
+```
+
+## Understanding Flags
+
+Flags are labels attached to modules that let you enable entire categories at once with `-f`. For example:
+
+```bash
+# Enable all subdomain enumeration modules
+bbot -f subdomain-enum -t evilcorp.com
+
+# Enable all passive, safe modules
+bbot -f passive safe -t evilcorp.com
+```
+
+Common flags include:
+
+| Flag | Meaning |
+|------|---------|
+| `active` | Makes real requests to targets |
+| `passive` | Gathers data without touching the target directly |
+| `safe` | Non-destructive; unlikely to cause harm |
+| `aggressive` | May trigger security alerts or cause side-effects |
+| `deadly` | Can cause real damage; requires `--allow-deadly` |
+| `subdomain-enum` | Discovers subdomains |
+| `web-basic` | Basic web scanning |
+| `web-thorough` | More thorough web scanning |
+| `cloud-enum` | Cloud resource enumeration |
+| `code-enum` | Code repository enumeration |
+| `email-enum` | Email address discovery |
+| `social-enum` | Social media enumeration |
+| `slow` | Takes significantly longer than typical modules |
+
+---
+
+## Subdomain Enumeration Modules
+
+These modules carry the `subdomain-enum` flag. Enable all of them with `-f subdomain-enum`.
+
+<Note>
+Modules marked **Needs API Key** require credentials configured in your BBOT config before they will run.
+</Note>
+
+| Module | Description | Flags | API Key |
+|--------|-------------|-------|---------|
+| `anubisdb` | Query jldc.me's database for subdomains | passive, safe | No |
+| `asn` | Query ripe and bgpview.io for ASNs | passive, safe | No |
+| `azure_realm` | Retrieve AuthURL from login.microsoftonline.com | affiliates, cloud-enum, passive, safe | No |
+| `azure_tenant` | Query azmap.dev for tenant sister domains | affiliates, cloud-enum, passive, safe | No |
+| `bevigil` | Retrieve OSINT data from mobile applications | passive, safe | Yes |
+| `baddns_direct` | Subdomain/service takeover edge case detection | active, baddns, cloud-enum, safe | No |
+| `baddns_zone` | DNS zone transfers and NSEC walks | active, baddns, cloud-enum, safe | No |
+| `bufferoverrun` | Query BufferOverrun's TLS API | passive, safe | Yes |
+| `builtwith` | Query Builtwith.com for subdomains | affiliates, passive, safe | Yes |
+| `c99` | Query the C99 API | passive, safe | Yes |
+| `censys_dns` | Query the Censys API | passive, safe | Yes |
+| `certspotter` | Query Certspotter's API | passive, safe | No |
+| `chaos` | Query ProjectDiscovery's Chaos API | passive, safe | Yes |
+| `crt` | Query crt.sh (certificate transparency) | passive, safe | No |
+| `crt_db` | Query crt.sh via PostgreSQL | passive, safe | No |
+| `digitorus` | Query certificatedetails.com | passive, safe | No |
+| `dnsbimi` | Check DNS for BIMI records | cloud-enum, passive, safe | No |
+| `dnscaa` | Check for CAA records | email-enum, passive, safe | No |
+| `dnsdumpster` | Query dnsdumpster for subdomains | passive, safe | No |
+| `dnstlsrpt` | Check for TLS-RPT records | cloud-enum, email-enum, passive, safe | No |
+| `dnsbrute` | Brute-force subdomains with massdns + static wordlist | active, aggressive | No |
+| `dnsbrute_mutations` | Brute-force with target-specific mutations | active, aggressive, slow | No |
+| `dnscommonsrv` | Check for common SRV records | active, safe | No |
+| `fullhunt` | Query fullhunt.io API | passive, safe | Yes |
+| `github_codesearch` | Query GitHub for code containing target domain | code-enum, passive, safe | Yes |
+| `github_org` | Query GitHub for organization repositories | code-enum, passive, safe | No |
+| `hackertarget` | Query hackertarget.com API | passive, safe | No |
+| `httpx` | Visit webpages; many modules depend on this | active, cloud-enum, safe, web-basic | No |
+| `hunterio` | Query hunter.io for emails and subdomains | email-enum, passive, safe | Yes |
+| `ipneighbor` | Look beside IPs in surrounding subnet | aggressive, passive | No |
+| `leakix` | Query leakix.net | passive, safe | No |
+| `myssl` | Query myssl.com API | passive, safe | No |
+| `oauth` | Enumerate OAUTH and OpenID Connect services | active, affiliates, cloud-enum, safe | No |
+| `otx` | Query otx.alienvault.com | passive, safe | Yes |
+| `passivetotal` | Query the PassiveTotal API | passive, safe | Yes |
+| `postman` | Query Postman's API for related workspaces | code-enum, passive, safe | No |
+| `rapiddns` | Query rapiddns.io | passive, safe | No |
+| `securitytxt` | Check for security.txt content | active, cloud-enum, safe, web-basic | No |
+| `securitytrails` | Query SecurityTrails API | passive, safe | Yes |
+| `shodan_dns` | Query Shodan for subdomains | passive, safe | Yes |
+| `shodan_idb` | Query Shodan's InternetDB | passive, portscan, safe | No |
+| `sitedossier` | Query sitedossier.com | passive, safe | No |
+| `sslcert` | Visit open ports and retrieve SSL certificates | active, affiliates, email-enum, safe | No |
+| `subdomaincenter` | Query subdomain.center API | passive, safe | No |
+| `subdomainradar` | Query Subdomain Radar API | passive, safe | Yes |
+| `trickest` | Query Trickest's API | affiliates, passive, safe | Yes |
+| `urlscan` | Query urlscan.io | passive, safe | No |
+| `virustotal` | Query VirusTotal's API | passive, safe | Yes |
+| `wayback` | Query archive.org's API | passive, safe | No |
+
+---
+
+## Web Scanning Modules
+
+These modules actively probe web applications. Most require the `httpx` module (enabled automatically).
+
+| Module | Description | Flags | API Key |
+|--------|-------------|-------|---------|
+| `ajaxpro` | Check for vulnerable Ajaxpro instances | active, safe, web-thorough | No |
+| `aspnet_bin_exposure` | Check for ASP.NET security feature bypasses | active, safe, web-thorough | No |
+| `baddns` | Check hosts for domain/subdomain takeovers | active, baddns, cloud-enum, safe | No |
+| `badsecrets` | Detect known or weak secrets in web frameworks | active, safe, web-basic | No |
+| `bypass403` | Check 403 pages for common bypasses | active, aggressive, web-thorough | No |
+| `dotnetnuke` | Scan for critical DotNetNuke vulnerabilities | active, aggressive, web-thorough | No |
+| `ffuf` | Fast web fuzzer written in Go | active, aggressive, **deadly** | No |
+| `ffuf_shortnames` | Use ffuf with IIS shortnames | active, aggressive, iis-shortnames, web-thorough | No |
+| `filedownload` | Download PDFs, DOCX, PPTX, and other common file types | active, download, safe, web-basic | No |
+| `generic_ssrf` | Check for generic SSRFs | active, aggressive, web-thorough | No |
+| `git` | Check for exposed .git repositories | active, code-enum, safe, web-basic | No |
+| `gowitness` | Take screenshots of webpages | active, safe, web-screenshots | No |
+| `graphql_introspection` | Perform GraphQL introspection | active, safe, web-basic | No |
+| `host_header` | Try common HTTP Host header spoofing techniques | active, aggressive, web-thorough | No |
+| `httpx` | Visit webpages; core dependency for web modules | active, cloud-enum, safe, web-basic | No |
+| `hunt` | Watch for commonly-exploitable HTTP parameters | active, safe, web-thorough | No |
+| `iis_shortnames` | Check for IIS shortname vulnerability | active, iis-shortnames, safe, web-basic | No |
+| `lightfuzz` | Heuristic web parameter fuzzer (XSS, SQLi, SSRF, etc.) | active, aggressive, **deadly**, web-thorough | No |
+| `newsletters` | Search for newsletter submission fields | active, safe | No |
+| `ntlm` | Watch for HTTP endpoints supporting NTLM auth | active, safe, web-basic | No |
+| `nuclei` | Fast and customizable vulnerability scanner | active, aggressive, **deadly** | No |
+| `paramminer_cookies` | Brute-force common HTTP cookie parameters | active, aggressive, slow, web-paramminer | No |
+| `paramminer_getparams` | Brute-force common HTTP GET parameters | active, aggressive, slow, web-paramminer | No |
+| `paramminer_headers` | Brute-force common HTTP header parameters | active, aggressive, slow, web-paramminer | No |
+| `reflected_parameters` | Highlight parameters that reflect in response body | active, safe, web-thorough | No |
+| `retirejs` | Detect vulnerable/out-of-date JavaScript libraries | active, safe, web-thorough | No |
+| `robots` | Look for and parse robots.txt | active, safe, web-basic | No |
+| `smuggler` | Check for HTTP request smuggling | active, aggressive, slow, web-thorough | No |
+| `telerik` | Scan for critical Telerik vulnerabilities | active, aggressive, web-thorough | No |
+| `url_manipulation` | Identify URL parsing/routing vulnerabilities | active, aggressive, web-thorough | No |
+| `wafw00f` | Web Application Firewall fingerprinting | active, aggressive | No |
+| `wpscan` | WordPress security scanner | active, aggressive | No |
+
+---
+
+## Cloud Enumeration Modules
+
+| Module | Description | Flags | API Key |
+|--------|-------------|-------|---------|
+| `bucket_amazon` | Check for S3 buckets related to target | active, cloud-enum, safe, web-basic | No |
+| `bucket_digitalocean` | Check for DigitalOcean spaces | active, cloud-enum, safe, slow, web-thorough | No |
+| `bucket_firebase` | Check for open Firebase databases | active, cloud-enum, safe, web-basic | No |
+| `bucket_google` | Check for Google Cloud Storage buckets | active, cloud-enum, safe, web-basic | No |
+| `bucket_microsoft` | Check for Azure storage blobs | active, cloud-enum, safe, web-basic | No |
+| `bucket_file_enum` | Enumerate files in open storage buckets | cloud-enum, passive, safe | No |
+| `azure_realm` | Retrieve Azure tenant AuthURL | affiliates, cloud-enum, passive, safe | No |
+| `azure_tenant` | Query for Azure tenant sister domains | affiliates, cloud-enum, passive, safe | No |
+| `censys_ip` | Query Censys API for hosts by IP | passive, safe | Yes |
+| `dnsbimi` | Find image/certificate hosting URLs via BIMI records | cloud-enum, passive, safe | No |
+| `oauth` | Enumerate OAUTH/OpenID Connect services | active, affiliates, cloud-enum, safe | No |
+| `securitytxt` | Check for security.txt | active, cloud-enum, safe, web-basic | No |
+| `shodan_idb` | Query Shodan's InternetDB | passive, portscan, safe | No |
+
+---
+
+## OSINT / Passive Modules
+
+These modules gather intelligence without directly probing the target.
+
+| Module | Description | Flags | API Key |
+|--------|-------------|-------|---------|
+| `affiliates` | Summarize affiliate domains at end of scan | affiliates, passive, safe | No |
+| `code_repository` | Look for code repository links in webpages | code-enum, passive, safe | No |
+| `credshed` | Query your own credshed server for known credentials | passive, safe | Yes |
+| `dehashed` | Query dehashed.com for exposed credentials | email-enum, passive, safe | Yes |
+| `dockerhub` | Search for Docker repositories of discovered orgs | code-enum, passive, safe | No |
+| `emailformat` | Query email-format.com for email addresses | email-enum, passive, safe | No |
+| `extractous` | Extract data from downloaded files | passive, safe | No |
+| `github_usersearch` | Query GitHub for users with matching emails | code-enum, passive, safe | Yes |
+| `github_workflows` | Download GitHub workflow logs and artifacts | code-enum, download, passive, safe | Yes |
+| `google_playstore` | Search for Android apps on Google Play | code-enum, passive, safe | No |
+| `ip2location` | Query IP2location.io for geolocation info | passive, safe | Yes |
+| `ipstack` | Query IPStack's GeoIP API | passive, safe | Yes |
+| `pgp` | Query common PGP servers for email addresses | email-enum, passive, safe | No |
+| `skymem` | Query skymem.info for email addresses | email-enum, passive, safe | No |
+| `social` | Look for social media links in webpages | passive, safe, social-enum | No |
+| `trufflehog` | Find credentials in code repositories | code-enum, passive, safe | No |
+| `urlscan` | Query urlscan.io for subdomains | passive, safe | No |
+| `viewdns` | Query viewdns.info's reverse whois | affiliates, passive, safe | No |
+
+---
+
+## Output Modules
+
+Output modules write scan results to different destinations. Enable them with `-om`.
+
+```bash
+bbot -t evilcorp.com -om csv json neo4j
+```
+
+| Module | Description |
+|--------|-------------|
+| `asset_inventory` | Merge hosts, ports, technologies, findings into a CSV |
+| `csv` | Output all events to CSV |
+| `discord` | Send events to a Discord channel |
+| `emails` | Output discovered email addresses |
+| `http` | Send every event to a custom URL via HTTP |
+| `json` | Output to Newline-Delimited JSON (NDJSON) |
+| `mysql` | Output scan data to a MySQL database |
+| `neo4j` | Output to Neo4j graph database |
+| `nmap_xml` | Output to Nmap XML format |
+| `postgres` | Output scan data to a PostgreSQL database |
+| `python` | Output via Python API |
+| `slack` | Send events to a Slack channel |
+| `splunk` | Send events to Splunk via HTTP Event Collector |
+| `sqlite` | Output scan data to a SQLite database |
+| `stdout` | Print events to standard output |
+| `subdomains` | Output only resolved, in-scope subdomains |
+| `teams` | Send events to a Microsoft Teams channel |
+| `txt` | Output events to a text file |
+| `web_parameters` | Output discovered WEB_PARAMETER names to a file |
+| `web_report` | Generate a Markdown report with web assets |
+| `websocket` | Stream events over WebSockets |
+
+---
+
+## Internal Modules
+
+Internal modules run automatically on every scan. You do not need to enable them explicitly, but you can disable them individually if needed.
+
+<Note>
+Disabling internal modules can severely impact scan quality. Only disable them if you know what you're doing.
+</Note>
+
+To disable an internal module, set it to `False` in your config:
+
+```yaml
+speculate: false
+excavate: false
+aggregate: false
+dnsresolve: false
+cloudcheck: false
+```
+
+| Module | Description |
+|--------|-------------|
+| `aggregate` | Summarizes scan statistics in a table at the end of every scan |
+| `cloudcheck` | Tags events by cloud provider and identifies cloud resources like storage buckets |
+| `dnsresolve` | Performs DNS resolution and wildcard detection |
+| `excavate` | Passively extracts URLs, parameters, emails, errors, and other data from HTTP responses using YARA rules. Also applies [custom YARA rules](/modules/custom-yara-rules). |
+| `speculate` | Infers event types from existing data — e.g. open ports from URLs, parent domains from DNS names |
+| `unarchive` | Extracts compressed archives found on the filesystem during a scan |
+
+### excavate
+
+The `excavate` module is one of BBOT's most powerful internal modules. It passively searches every HTTP response for:
+
+- **URLs** — feeds the recursive web spider
+- **Web parameters** — GET/POST params, form fields, jQuery parameters (produces `WEB_PARAMETER` events)
+- **Email addresses** — extracted from page content
+- **Verbose errors** — detects error messages that reveal framework details
+- **CSP domains** — extracts domains from `Content-Security-Policy` headers
+- **Serialized objects** — detects Java, .NET, and PHP serialization
+- **File upload fields and WSDL URLs**
+- **Non-HTTP scheme URLs** — `ftp://`, `mailto:`, `javascript:`, etc.
+- **Custom YARA rule matches** — any rules you supply via `--custom-yara-rules`
+
+### speculate
+
+The `speculate` module bridges gaps between event types so that scans can discover web resources even without a port scanner enabled:
+
+- `IP_RANGE` → individual `IP_ADDRESS` events
+- `DNS_NAME` → parent domain `DNS_NAME` events
+- `URL` / `URL_UNVERIFIED` → `OPEN_TCP_PORT` events (when no port scanner is active)
+- `SOCIAL` / `AZURE_TENANT` → `ORG_STUB` events
+- `USERNAME` → `EMAIL_ADDRESS` events (when username looks like an email)

@@ -1,0 +1,339 @@
+---
+title: "Event"
+description: "Events are the atomic unit of data in BBOT. Every piece of discovered information — a domain, IP address, open port, URL, or vulnerability — is an Event."
+---
+
+## Overview
+
+As BBOT scans, each module emits `Event` objects. These flow through the event pipeline, get filtered by scope distance, and land in your output modules (or your own code, when iterating over `scan.start()`).
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner("evilcorp.com", modules=["portscan", "httpx"])
+for event in scan.start():
+    print(event.type, event.data, event.host)
+```
+
+## Creating events — `make_event()`
+
+```python
+make_event(
+    data,
+    event_type=None,
+    parent=None,
+    context=None,
+    module=None,
+    scan=None,
+    tags=None,
+    confidence=100,
+    dummy=False,
+    internal=None,
+)
+```
+
+`make_event()` is the factory function for all events. Inside a module, use `self.make_event()` instead so the module reference is set automatically.
+
+<ParamField path="data" type="str or dict">
+  The primary data for the event — a hostname, IP, URL, dict payload, etc. The event type is auto-detected if not provided.
+</ParamField>
+
+<ParamField path="event_type" type="str" optional>
+  Explicit event type, e.g. `"DNS_NAME"`. Auto-detected from `data` if omitted.
+</ParamField>
+
+<ParamField path="parent" type="BaseEvent" optional>
+  The parent event that led to this event's discovery. Required unless `dummy=True`.
+</ParamField>
+
+<ParamField path="context" type="str" optional>
+  Human-readable description of how this event was discovered, e.g. `"httpx resolved {event.data}"`.
+</ParamField>
+
+<ParamField path="module" type="BaseModule or str" optional>
+  Module that discovered this event. Set automatically when called via `self.make_event()`.
+</ParamField>
+
+<ParamField path="scan" type="Scanner" optional>
+  The scan object. Required unless `dummy=True`.
+</ParamField>
+
+<ParamField path="tags" type="list[str] or str" optional>
+  Descriptive tags for the event, e.g. `["affiliate", "in-scope"]`.
+</ParamField>
+
+<ParamField path="confidence" type="int" default="100">
+  Confidence level (1–100). Lower values indicate speculative data.
+</ParamField>
+
+<ParamField path="dummy" type="bool" default="False">
+  Disables parent and scan validation. Used for testing and deserialization.
+</ParamField>
+
+<ParamField path="internal" type="bool" optional>
+  If `True`, the event is marked internal and excluded from output modules.
+</ParamField>
+
+### Example
+
+```python
+# Inside a module's handle_event():
+new_event = self.make_event("www.evilcorp.com", parent=event)
+await self.emit_event(new_event)
+
+# Or pass data and let BBOT detect the type:
+await self.emit_event("1.2.3.4", parent=event)
+await self.emit_event("https://evilcorp.com/login", parent=event, tags=["interesting"])
+```
+
+## Event attributes
+
+<ResponseField name="type" type="str">
+  The event type string, e.g. `"DNS_NAME"`, `"IP_ADDRESS"`, `"URL"`.
+</ResponseField>
+
+<ResponseField name="id" type="str">
+  A deterministic identifier formed from the event type and a SHA-1 hash of its data — `"DNS_NAME:017ec8e5..."`. Not universally unique; two events with the same data and type share the same `id`.
+</ResponseField>
+
+<ResponseField name="uuid" type="str">
+  A universally unique identifier in the format `"<type>:<uuid4>"`. Use this when you need to distinguish between two events with identical data.
+</ResponseField>
+
+<ResponseField name="data" type="str or dict">
+  The primary event payload — a hostname, IP address, URL, or a dictionary for structured types such as `VULNERABILITY` or `FINDING`.
+</ResponseField>
+
+<ResponseField name="host" type="str, IPv4Address, IPv6Address, or IPv4Network">
+  The normalized host extracted from the event data. Allows cross-type scope comparisons:
+  - `bob@evilcorp.com` → `evilcorp.com`
+  - `https://evilcorp.com` → `evilcorp.com`
+  - `evilcorp.com:80` → `evilcorp.com`
+  - `1.2.3.4` → `IPv4Address("1.2.3.4")`
+</ResponseField>
+
+<ResponseField name="port" type="int or None">
+  Port associated with the event, if applicable. For URLs, derived from the scheme when no explicit port is present.
+</ResponseField>
+
+<ResponseField name="scope_distance" type="int">
+  How many hops this event is from the scan's primary scope. `0` means the event is in-scope. The value can only decrease (never increase) once set.
+</ResponseField>
+
+<ResponseField name="timestamp" type="datetime.datetime">
+  UTC datetime when the event was created.
+</ResponseField>
+
+<ResponseField name="tags" type="set[str]">
+  Descriptive tags, e.g. `{"in-scope", "distance-0", "subdomain", "status-200"}`.
+</ResponseField>
+
+<ResponseField name="module" type="BaseModule">
+  The module that emitted this event.
+</ResponseField>
+
+<ResponseField name="module_sequence" type="str">
+  Comma-separated sequence of module names that participated in discovering this event.
+</ResponseField>
+
+<ResponseField name="resolved_hosts" type="set[str]">
+  IP addresses to which this event resolves. Populated for `DNS_NAME` and `URL` events.
+</ResponseField>
+
+<ResponseField name="dns_children" type="dict">
+  Child DNS records discovered during resolution of this event. Keys are record types (`"A"`, `"CNAME"`, etc.), values are sets of records.
+</ResponseField>
+
+<ResponseField name="parent" type="BaseEvent">
+  The parent event that triggered the discovery of this event.
+</ResponseField>
+
+<ResponseField name="parent_id" type="str">
+  The `id` of the parent event.
+</ResponseField>
+
+<ResponseField name="parent_uuid" type="str">
+  The `uuid` of the parent event.
+</ResponseField>
+
+<ResponseField name="discovery_context" type="str">
+  A formatted string describing how this event was discovered, e.g. `"httpx visited URL: https://evilcorp.com"`.
+</ResponseField>
+
+<ResponseField name="discovery_path" type="list[str]">
+  The full chain of `discovery_context` strings from the root event to this one.
+</ResponseField>
+
+<ResponseField name="parent_chain" type="list[str]">
+  The full chain of parent `uuid` values from the root event to this one.
+</ResponseField>
+
+<ResponseField name="confidence" type="int">
+  Confidence level for this event (1–100). Clamped to the range automatically.
+</ResponseField>
+
+<ResponseField name="cumulative_confidence" type="int">
+  Confidence that accounts for parent events. An event with confidence 50 whose parent also has confidence 50 yields a cumulative confidence of 25.
+</ResponseField>
+
+<ResponseField name="web_spider_distance" type="int">
+  The web crawl depth from the web root. Specific to URL-type events.
+</ResponseField>
+
+<ResponseField name="scan" type="Scanner">
+  The `Scanner` object that generated this event.
+</ResponseField>
+
+## Instance methods
+
+### `json()`
+
+```python
+def json(siem_friendly=False) -> dict
+```
+
+Serialize the event to a JSON-serializable dictionary.
+
+### `pretty_string()`
+
+```python
+def pretty_string() -> str
+```
+
+Return a human-readable string representation of the event.
+
+### `make_internal()`
+
+```python
+def make_internal() -> None
+```
+
+Mark the event as internal so it is not forwarded to output modules.
+
+### `unmake_internal()`
+
+```python
+def unmake_internal(force=False) -> None
+```
+
+Remove the internal flag from the event.
+
+### `set_scope_distance(scope_distance)`
+
+```python
+def set_scope_distance(scope_distance: int) -> None
+```
+
+Set the scope distance (scope distance only decreases; larger values are ignored).
+
+## JSON representation
+
+```json
+{
+  "type": "URL",
+  "id": "URL:017ec8e5dc158c0fd46f07169f8577fb4b45e89a",
+  "uuid": "URL:3f2504e0-4f89-11d3-9a0c-0305e82c3301",
+  "data": "http://www.blacklanternsecurity.com/",
+  "web_spider_distance": 0,
+  "scope_distance": 0,
+  "scan": "SCAN:4d786912dbc97be199da13074699c318e2067a7f",
+  "timestamp": "2023-07-05T01:03:42.723366+00:00",
+  "resolved_hosts": ["185.199.108.153"],
+  "parent": "OPEN_TCP_PORT:cf7e6a937b161217eaed99f0c566eae045d094c7",
+  "parent_uuid": "OPEN_TCP_PORT:8a4bcd2e-9f01-41d2-bb13-4c82f6e1d390",
+  "tags": ["in-scope", "distance-0", "dir", "ip-185-199-108-153", "status-301"],
+  "module": "httpx",
+  "module_sequence": "httpx",
+  "discovery_context": "httpx visited URL: http://www.blacklanternsecurity.com/"
+}
+```
+
+## Deserializing events — `event_from_json()`
+
+```python
+event_from_json(j: dict, siem_friendly=False) -> BaseEvent
+```
+
+Create an event from a JSON dictionary (e.g., read back from a `.json` output file).
+
+```python
+from bbot.core.event import event_from_json
+
+with open("output.json") as f:
+    for line in f:
+        event = event_from_json(json.loads(line))
+        print(event.type, event.data)
+```
+
+## Event types
+
+BBOT defines the following built-in event types.
+
+<AccordionGroup>
+  <Accordion title="Network / host types">
+
+  | Type | Description |
+  |---|---|
+  | `DNS_NAME` | A resolved or discovered DNS hostname, e.g. `www.evilcorp.com`. |
+  | `IP_ADDRESS` | An IPv4 or IPv6 address. |
+  | `IP_RANGE` | A CIDR network, e.g. `1.2.3.0/24`. |
+  | `OPEN_TCP_PORT` | A confirmed open TCP port in `host:port` format, e.g. `evilcorp.com:443`. |
+
+  </Accordion>
+  <Accordion title="Web types">
+
+  | Type | Description |
+  |---|---|
+  | `URL` | A verified, live URL. |
+  | `URL_UNVERIFIED` | A URL that has not yet been probed for liveness. |
+  | `URL_HINT` | A URL hint discovered via passive means (not yet visited). |
+  | `HTTP_RESPONSE` | A full HTTP response, including headers and body. |
+  | `WEB_PARAMETER` | A discovered web parameter (query string, POST field, path param). |
+  | `STORAGE_BUCKET` | A cloud storage bucket URL (S3, GCS, Azure Blob). |
+
+  </Accordion>
+  <Accordion title="Infrastructure types">
+
+  | Type | Description |
+  |---|---|
+  | `TECHNOLOGY` | A technology fingerprint, e.g. `{"host": "evilcorp.com", "technology": "nginx"}`. |
+  | `PROTOCOL` | A non-HTTP protocol, e.g. SSH, FTP, RDP. |
+  | `AZURE_TENANT` | An Azure tenant ID. |
+  | `CODE_REPOSITORY` | A discovered source code repository URL. |
+
+  </Accordion>
+  <Accordion title="Finding / vulnerability types">
+
+  | Type | Description |
+  |---|---|
+  | `FINDING` | A notable observation that may or may not be a vulnerability. |
+  | `VULNERABILITY` | A confirmed security vulnerability. Includes severity. |
+
+  </Accordion>
+  <Accordion title="Identity types">
+
+  | Type | Description |
+  |---|---|
+  | `EMAIL_ADDRESS` | An email address. |
+  | `USERNAME` | A username. |
+  | `PASSWORD` | A plaintext password. |
+  | `HASHED_PASSWORD` | A hashed password. |
+  | `SOCIAL` | A social media profile URL. |
+  | `GEOLOCATION` | Geographic location data. |
+  | `MOBILE_APP` | A mobile application listing. |
+
+  </Accordion>
+  <Accordion title="File / data types">
+
+  | Type | Description |
+  |---|---|
+  | `FILESYSTEM` | A filesystem path discovered during scanning. |
+  | `RAW_DNS_RECORD` | A raw DNS record, including type and value. |
+  | `WEBSCREENSHOT` | A screenshot of a web page. |
+
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  Event types are auto-detected by `make_event()` when you pass raw data. For example, passing `"1.2.3.4"` creates an `IP_ADDRESS` event, and passing `"evilcorp.com"` creates a `DNS_NAME` event.
+</Tip>

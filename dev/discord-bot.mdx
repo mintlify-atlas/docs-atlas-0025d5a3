@@ -1,0 +1,222 @@
+---
+title: "Discord Bot Example"
+description: "Run BBOT scans from a Discord server using BBOT's Python API."
+---
+
+This example shows how to build a Discord bot that runs BBOT scans and streams results back to a channel. It uses BBOT's Python `Scanner` API directly, so no CLI process management is needed.
+
+<Note>
+This is a demonstration of BBOT's Python API. For a production bot you should add authentication, rate limiting, and error handling appropriate to your environment.
+</Note>
+
+## Full source
+
+```python title="examples/discord_bot.py"
+import discord
+from discord.ext import commands
+
+from bbot.scanner import Scanner
+from bbot.modules.output.discord import Discord
+
+
+class BBOTDiscordBot(commands.Cog):
+    """
+    A simple Discord bot capable of running a BBOT scan.
+
+    To set up:
+        1. Go to Discord Developer Portal (https://discord.com/developers)
+        2. Create a new application
+        3. Create an invite link for the bot, visit the link to invite it to your server
+            - Your Application --> OAuth2 --> URL Generator
+                - For Scopes, select "bot"
+                - For Bot Permissions, select:
+                    - Read Messages/View Channels
+                    - Send Messages
+        4. Turn on "Message Content Intent"
+            - Your Application --> Bot --> Privileged Gateway Intents --> Message Content Intent
+        5. Copy your Discord Bot Token and put it at the top of this file
+            - Your Application --> Bot --> Reset Token
+        6. Run this script
+
+    To scan evilcorp.com, type in your Discord server:
+
+        /scan evilcorp.com
+
+    Results will be output to the same channel.
+    """
+
+    def __init__(self):
+        self.current_scan = None
+
+    @commands.command(name="scan", description="Scan a target with BBOT.")
+    async def scan(self, ctx, target: str):
+        if self.current_scan is not None:
+            self.current_scan.stop()
+        await ctx.send(f"Starting scan against {target}.")
+
+        # Create the scan instance
+        self.current_scan = Scanner(target, flags="subdomain-enum")
+        discord_module = Discord(self.current_scan)
+
+        seen = set()
+        num_events = 0
+        # Start scan and stream results as they arrive
+        async for event in self.current_scan.async_start():
+            if hash(event) in seen:
+                continue
+            seen.add(hash(event))
+            await ctx.send(discord_module.format_message(event))
+            num_events += 1
+
+        await ctx.send(f"Finished scan against {target}. {num_events:,} results.")
+        self.current_scan = None
+
+
+if __name__ == "__main__":
+    intents = discord.Intents.default()
+    intents.message_content = True
+    bot = commands.Bot(command_prefix="/", intents=intents)
+
+    @bot.event
+    async def on_ready():
+        print(f"We have logged in as {bot.user}")
+        await bot.add_cog(BBOTDiscordBot())
+
+    bot.run("DISCORD_BOT_TOKEN_HERE")
+```
+
+## How it works
+
+### The Scanner API
+
+`Scanner` is BBOT's main Python entry point. You pass it a target and any scan flags, just like you would on the CLI:
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner("evilcorp.com", flags="subdomain-enum")
+```
+
+You can also pass modules directly, configure options, or pass an existing preset:
+
+```python
+scan = Scanner(
+    "evilcorp.com",
+    modules=["anubisdb", "certspotter", "httpx"],
+    config={"web": {"timeout": 15}},
+)
+```
+
+### Streaming events with async_start()
+
+`scan.async_start()` is an async generator that yields events as they are produced. This lets you process results in real time rather than waiting for the scan to finish:
+
+```python
+async for event in scan.async_start():
+    print(event.type, event.data)
+```
+
+Each `event` object has the following key attributes:
+
+| Attribute | Description |
+|-----------|-------------|
+| `event.type` | Event type string, e.g. `"DNS_NAME"` |
+| `event.data` | The actual data (string, dict, etc.) |
+| `event.tags` | Set of tags on the event |
+| `event.host` | Host associated with the event |
+| `event.parent` | Parent event in the scan graph |
+
+### Deduplication
+
+The bot tracks seen events by hash to avoid sending duplicate messages. BBOT itself suppresses most duplicates, but the `seen` set is an extra safety net for this use case:
+
+```python
+seen = set()
+async for event in self.current_scan.async_start():
+    if hash(event) in seen:
+        continue
+    seen.add(hash(event))
+    await ctx.send(discord_module.format_message(event))
+```
+
+### The Discord output module
+
+`Discord` is one of BBOT's built-in output modules. `format_message(event)` converts a BBOT event into a Discord-friendly string. You can replace this with your own formatting logic if needed:
+
+```python
+from bbot.modules.output.discord import Discord
+
+discord_module = Discord(self.current_scan)
+message = discord_module.format_message(event)
+```
+
+### Stopping a scan
+
+Call `scan.stop()` to cancel a running scan. The bot does this when a new `/scan` command arrives while a scan is already in progress:
+
+```python
+if self.current_scan is not None:
+    self.current_scan.stop()
+```
+
+## Deploy
+
+<Steps>
+  <Step title="Install dependencies">
+    ```bash
+    pip install bbot discord.py
+    ```
+  </Step>
+
+  <Step title="Create a Discord application">
+    1. Go to the [Discord Developer Portal](https://discord.com/developers).
+    2. Create a new application and add a bot.
+    3. Under **OAuth2 → URL Generator**, select the `bot` scope and the following permissions:
+       - **Read Messages / View Channels**
+       - **Send Messages**
+    4. Visit the generated invite URL to add the bot to your server.
+    5. Under **Bot → Privileged Gateway Intents**, enable **Message Content Intent**.
+  </Step>
+
+  <Step title="Add your bot token">
+    Copy your bot token from **Bot → Reset Token** and replace the placeholder at the bottom of the script:
+
+    ```python
+    bot.run("DISCORD_BOT_TOKEN_HERE")
+    ```
+
+    <Warning>
+    Never commit your bot token to version control. Use an environment variable or secrets manager instead:
+
+    ```python
+    import os
+    bot.run(os.environ["DISCORD_BOT_TOKEN"])
+    ```
+    </Warning>
+  </Step>
+
+  <Step title="Run the bot">
+    ```bash
+    python discord_bot.py
+    ```
+
+    Once the bot is online, type `/scan evilcorp.com` in any channel it has access to.
+  </Step>
+</Steps>
+
+## Further reading
+
+<CardGroup cols={2}>
+  <Card title="Writing modules" icon="code" href="/dev/module-howto">
+    Learn how BBOT modules work and write your own.
+  </Card>
+  <Card title="Scanner API" icon="terminal" href="/dev/scanner">
+    Full reference for the Python Scanner class.
+  </Card>
+  <Card title="discord.py docs" icon="book" href="https://discordpy.readthedocs.io/">
+    The Discord bot framework used in this example.
+  </Card>
+  <Card title="BBOT on GitHub" icon="github" href="https://github.com/blacklanternsecurity/bbot">
+    Source code, issues, and discussions.
+  </Card>
+</CardGroup>

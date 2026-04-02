@@ -1,0 +1,130 @@
+---
+title: "Custom YARA Rules"
+description: "Search HTTP response data during a BBOT scan using your own YARA rules to detect secrets, custom strings, or any pattern you define."
+---
+
+Through the `excavate` internal module, BBOT supports scanning HTTP response bodies with custom YARA rules. Any match emits a `FINDING` event, letting you hunt for secrets, internal identifiers, or any string or regex pattern across your entire attack surface.
+
+## Enable custom YARA rules
+
+Pass a YARA rules file with `--custom-yara-rules` (or `-cy`):
+
+```bash
+bbot -m httpx --custom-yara-rules=my_rules.yara -t evilcorp.com
+```
+
+The file can contain one or multiple rules.
+
+## Writing rules
+
+### Simple string match
+
+```yara
+rule find_api_key {
+    strings:
+        $s1 = "AAAABBBB"
+    condition:
+        $s1
+}
+```
+
+### Match any of multiple strings
+
+```yara
+rule find_secrets {
+    strings:
+        $s1 = "secret_key"
+        $s2 = "private_token"
+    condition:
+        any of them
+}
+```
+
+### Regex match
+
+```yara
+rule aws_access_key {
+    strings:
+        $key = /AKIA[0-9A-Z]{16}/
+    condition:
+        $key
+}
+```
+
+<Note>
+YARA uses its own regex engine — not Python's `re` module. Many Python regexes need minor adjustments to work in YARA. The upside: YARA's engine is significantly faster.
+</Note>
+
+## Custom meta attributes
+
+BBOT supports special `meta` fields that control how findings are reported.
+
+### `description`
+
+Sets the text that appears in the emitted `FINDING` event:
+
+```yara
+rule AAAABBBB {
+    meta:
+        description = "contains our test string"
+    strings:
+        $str1 = "AAAABBBB"
+    condition:
+        $str1
+}
+```
+
+Output:
+```
+[FINDING] {"description": "Custom Yara Rule [AAAABBBB] with description: [contains our test string] Matched via identifier [str1]", ...}
+```
+
+### `tags`
+
+Tags provided here are attached to the emitted event (comma-separated):
+
+```yara
+rule AAAABBBB {
+    meta:
+        description = "contains our test string"
+        tags = "tag1,tag2,tag3"
+    strings:
+        $str1 = "AAAABBBB"
+    condition:
+        $str1
+}
+```
+
+### `emit_match`
+
+When set to `true`, the actual matched string is included in the finding description:
+
+```yara
+rule ContainsTitle {
+    meta:
+        description = "Contains an HTML title tag"
+        emit_match = true
+    strings:
+        $title_value = /<title>(.*)?<\/title>/i
+    condition:
+        $title_value
+}
+```
+
+Output:
+```
+[FINDING] {"description": "Custom Yara Rule [ContainsTitle] ... extracted [<title>Black Lantern Security</title>]", ...}
+```
+
+## Tips
+
+<Tip>
+Combine custom YARA rules with subdomain enumeration and web crawling to scan your entire attack surface for secrets in a single pass:
+
+```bash
+bbot -p subdomain-enum spider -m httpx \
+  --custom-yara-rules=secrets.yara -t evilcorp.com
+```
+</Tip>
+
+For more on writing YARA rules, see the [official YARA documentation](https://yara.readthedocs.io/en/stable/writingrules.html).

@@ -1,0 +1,301 @@
+---
+title: "Troubleshooting"
+description: "Solutions to common BBOT issues, from installation errors to scan problems."
+---
+
+If you run into a problem not covered here, ask in the [Discord server](https://discord.com/invite/PZqkgxu5SA) or open an issue on [GitHub](https://github.com/blacklanternsecurity/bbot/issues).
+
+## Installation issues
+
+<AccordionGroup>
+  <Accordion title="Fatal error from pip / No matching distribution found for bbot">
+    These errors usually mean your Python version is too old. BBOT requires **Python 3.9 or newer**.
+
+    To install a newer version and reinstall BBOT:
+
+    ```bash
+    # install Python 3.9 and its venv module
+    sudo apt install python3.9 python3.9-venv
+
+    # install pipx using the newer Python
+    python3.9 -m pip install --user pipx
+
+    # add pipx to your PATH
+    python3.9 -m pipx ensurepath
+
+    # reboot so the PATH change takes effect
+    reboot
+
+    # install BBOT
+    python3.9 -m pipx install bbot
+
+    # verify the install
+    bbot --help
+    ```
+  </Accordion>
+
+  <Accordion title="Bad interpreter: no such file or directory">
+    The error `bash: /home/user/.local/bin/bbot: /home/user/.local/pipx/venvs/bbot/bin/python: bad interpreter` means the Python binary that pipx used during installation no longer exists at that path.
+
+    Uninstall and reinstall BBOT with a known-good Python version:
+
+    ```bash
+    pipx uninstall bbot
+    python3.9 -m pipx install bbot
+    ```
+  </Accordion>
+
+  <Accordion title="pipx command not found after install">
+    After running `pipx ensurepath`, the change only takes effect in new shell sessions. Either open a new terminal or source your profile:
+
+    ```bash
+    source ~/.bashrc
+    # or, if you use zsh:
+    source ~/.zshrc
+    ```
+
+    Then confirm pipx is available:
+
+    ```bash
+    pipx --version
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Module and dependency issues
+
+<AccordionGroup>
+  <Accordion title="ModuleNotFoundError when running a module">
+    A missing Python dependency in a module's virtualenv causes this error. Run your command again with the `--force-deps` flag to repair the dependencies:
+
+    ```bash
+    bbot -t evilcorp.com -p subdomain-enum --force-deps
+    ```
+
+    `--force-deps` reinstalls all Python dependencies for your modules, regardless of whether they appear to be present.
+  </Accordion>
+
+  <Accordion title="Ansible dependency installation failure">
+    BBOT uses Ansible to automatically install non-Python dependencies (tools like `nmap`, `chromium`, etc.). If Ansible fails during a scan, try:
+
+    1. Make sure you have `ansible` installed and accessible in your PATH.
+    2. Run the scan again — transient errors (network timeouts, package mirrors) often resolve on retry.
+    3. If a specific module keeps failing, disable it with `-em <module_name>` while you investigate.
+
+    ```bash
+    # exclude a failing module and continue the scan
+    bbot -t evilcorp.com -p subdomain-enum -em gowitness
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## DNS issues
+
+<AccordionGroup>
+  <Accordion title="Scan finds no subdomains / DNS results are empty">
+    If DNS brute-force or resolution returns nothing, verify that your system resolver is working:
+
+    ```bash
+    # test basic resolution
+    dig evilcorp.com
+
+    # test against a public resolver directly
+    dig @8.8.8.8 evilcorp.com
+    ```
+
+    If your system resolver is the problem, configure a public DNS server in `/etc/resolv.conf` or set `dns.nameservers` in your BBOT config:
+
+    ```yaml
+    # ~/.config/bbot/bbot.yml
+    dns:
+      nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+    ```
+  </Accordion>
+
+  <Accordion title="DNS resolution is extremely slow">
+    High-latency or unreliable resolvers slow down DNS-heavy scans significantly. Lower the DNS thread count to reduce load, or switch to faster nameservers:
+
+    ```yaml
+    # ~/.config/bbot/bbot.yml
+    dns:
+      threads: 10
+      nameservers:
+        - 8.8.8.8
+        - 1.1.1.1
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## API key issues
+
+<AccordionGroup>
+  <Accordion title="Module reports missing or invalid API key">
+    Modules that rely on third-party APIs (SecurityTrails, Shodan, VirusTotal, etc.) will skip or warn if their key is missing or invalid.
+
+    Add your keys to `~/.config/bbot/bbot.yml`:
+
+    ```yaml
+    modules:
+      shodan_dns:
+        api_key: YOUR_KEY_HERE
+      securitytrails:
+        api_key: YOUR_KEY_HERE
+      virustotal:
+        api_key: YOUR_KEY_HERE
+      c99:
+        # multiple keys are supported
+        api_key:
+          - KEY_ONE
+          - KEY_TWO
+    ```
+
+    You can also pass a key on the command line without editing the config file:
+
+    ```bash
+    bbot -t evilcorp.com -p subdomain-enum -c modules.virustotal.api_key=YOUR_KEY_HERE
+    ```
+
+    <Tip>Run `bbot -em TARGET -p subdomain-enum` to list which modules need keys and which are active.</Tip>
+  </Accordion>
+</AccordionGroup>
+
+## Scan issues
+
+<AccordionGroup>
+  <Accordion title="Scan appears stuck or makes no progress">
+    A scan that hangs usually means one or more modules are waiting on slow network responses. Try these steps:
+
+    1. Enable debug logging to see exactly what is happening: `bbot ... -d`
+    2. Check if a specific module is the bottleneck and exclude it: `-em <module_name>`
+    3. Reduce concurrency for DNS or web modules in your config if your network connection is limited.
+
+    ```bash
+    # run with debug output to diagnose a stuck scan
+    bbot -t evilcorp.com -p subdomain-enum -d
+    ```
+  </Accordion>
+
+  <Accordion title="Scan finishes quickly but finds very little">
+    If results seem unexpectedly sparse:
+
+    - Make sure you are not inadvertently limiting scope. Check that your target is correct.
+    - Add more passive sources by enabling the full `subdomain-enum` preset.
+    - Add API keys for data-rich sources like SecurityTrails, Shodan, or Chaos.
+    - Use `-rf passive` to verify that passive-only sources are returning data before enabling active modules.
+
+    ```bash
+    # passive-only run to test data source coverage
+    bbot -t evilcorp.com -p subdomain-enum -rf passive
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Permission issues
+
+<AccordionGroup>
+  <Accordion title="Permission denied errors during scan">
+    Some modules (e.g., raw socket operations) require elevated privileges. Run BBOT with `sudo` only when a specific module requires it — most modules do not.
+
+    If you see permission errors on BBOT's own files or output directories, check that your user owns the relevant paths:
+
+    ```bash
+    # fix ownership of the BBOT config and output directories
+    sudo chown -R $USER ~/.config/bbot
+    sudo chown -R $USER ~/.bbot
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance and memory issues
+
+<AccordionGroup>
+  <Accordion title="High memory usage during large scans">
+    Very large scans (broad IP ranges, many targets) can consume significant memory. To reduce memory pressure:
+
+    - Narrow the scope with more specific targets.
+    - Use output modules like `json` or `csv` to stream results to disk rather than holding them in memory.
+    - Avoid running multiple large scans simultaneously on the same host.
+  </Accordion>
+
+  <Accordion title="Scan is slow on a low-resource machine">
+    Lower thread counts for the most resource-intensive operations:
+
+    ```yaml
+    # ~/.config/bbot/bbot.yml
+    dns:
+      threads: 10
+      brute_threads: 100
+    web:
+      threads: 10
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Debug logging
+
+When something goes wrong, the `-d` flag produces verbose output that shows exactly what BBOT is doing:
+
+```bash
+bbot -t evilcorp.com -p subdomain-enum -d
+```
+
+For even more detail, use `-dd` (trace-level logging):
+
+```bash
+bbot -t evilcorp.com -p subdomain-enum -dd
+```
+
+<Info>Debug output can be very long. Pipe it to a file for easier review: `bbot ... -d 2>&1 | tee bbot_debug.log`</Info>
+
+## Resetting your configuration
+
+If you suspect a corrupted or outdated config is causing problems, back it up and let BBOT generate fresh defaults:
+
+```bash
+# back up your existing config
+mv ~/.config/bbot ~/.config/bbot.bak
+
+# run bbot once to regenerate default configs
+bbot
+```
+
+Your API keys and custom settings are preserved in the backup at `~/.config/bbot.bak/bbot.yml`.
+
+## Common error messages
+
+<AccordionGroup>
+  <Accordion title="ERROR: No matching distribution found for bbot">
+    Your Python version is too old. BBOT requires Python 3.9+. See the [installation troubleshooting](#installation-issues) section above.
+  </Accordion>
+
+  <Accordion title="ModuleNotFoundError: No module named '...'">
+    A module's Python dependency is missing or broken. Re-run your command with `--force-deps` to reinstall dependencies.
+  </Accordion>
+
+  <Accordion title="[WARNING] Could not resolve DNS for target">
+    BBOT could not resolve your target's hostname. Verify the hostname is correct and that your DNS resolver is working.
+  </Accordion>
+
+  <Accordion title="[WARNING] Module X is not enabled (missing API key)">
+    The module requires an API key that is not configured. Add the key to `~/.config/bbot/bbot.yml` under `modules.<module_name>.api_key`.
+  </Accordion>
+</AccordionGroup>
+
+## Getting help
+
+<CardGroup cols={2}>
+  <Card title="Discord" icon="discord" href="https://discord.com/invite/PZqkgxu5SA">
+    Chat with the BBOT community and maintainers in real time.
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/blacklanternsecurity/bbot/issues">
+    Report bugs or search existing issues.
+  </Card>
+  <Card title="GitHub Discussions" icon="message-circle" href="https://github.com/blacklanternsecurity/bbot/discussions">
+    Ask questions and share ideas with the community.
+  </Card>
+  <Card title="Documentation" icon="book-open" href="/index">
+    Browse the full BBOT documentation.
+  </Card>
+</CardGroup>

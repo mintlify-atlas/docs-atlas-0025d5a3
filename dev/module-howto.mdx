@@ -1,0 +1,504 @@
+---
+title: "How to Write a BBOT Module"
+description: "Build a custom BBOT module to watch for events, process them, and emit new findings."
+---
+
+A BBOT **module** is a Python class that watches for specific event types, processes them, and optionally emits new events back into the scan. Every feature in BBOT — DNS lookups, subdomain enumeration, HTTP probing — is a module.
+
+<CardGroup cols={2}>
+  <Card title="Passive module" icon="eye-slash">
+    Reads data without touching the target directly (e.g. querying a third-party API).
+  </Card>
+  <Card title="Active module" icon="bolt">
+    Interacts with the target directly (e.g. sending HTTP requests, port scanning).
+  </Card>
+</CardGroup>
+
+## Create your module
+
+<Steps>
+  <Step title="Create a Python file">
+    Create a new `.py` file in `bbot/modules/` (or in a [custom module directory](#load-modules-from-custom-locations)).
+
+    The filename becomes the module name. The class inside must share the same name (case-insensitive).
+  </Step>
+
+  <Step title="Import BaseModule and declare your class">
+    ```python title="bbot/modules/mymodule.py"
+    from bbot.modules.base import BaseModule
+
+    class mymodule(BaseModule):
+        watched_events = ["DNS_NAME"]
+        produced_events = ["DNS_NAME"]
+        flags = ["passive", "safe", "subdomain-enum"]
+        meta = {"description": "My custom BBOT module"}
+    ```
+  </Step>
+
+  <Step title="Implement handle_event()">
+    Put your main logic inside `handle_event()`. BBOT calls it automatically whenever an event matching `watched_events` appears during a scan.
+
+    ```python
+    async def handle_event(self, event):
+        self.hugeinfo(f"Got event: {event.data}")
+        # ... do something with the event
+        await self.emit_event("subdomain.example.com", "DNS_NAME", parent=event)
+    ```
+  </Step>
+
+  <Step title="Run your module">
+    ```bash
+    bbot -t evilcorp.com -m mymodule
+    ```
+  </Step>
+</Steps>
+
+## Full working example
+
+The `anubisdb` module queries a passive DNS API to find subdomains. It is a good minimal example of a real BBOT module:
+
+```python title="bbot/modules/anubisdb.py"
+from bbot.modules.templates.subdomain_enum import subdomain_enum
+
+
+class anubisdb(subdomain_enum):
+    flags = ["subdomain-enum", "passive", "safe"]
+    watched_events = ["DNS_NAME"]
+    produced_events = ["DNS_NAME"]
+    meta = {
+        "description": "Query jldc.me's database for subdomains",
+        "created_date": "2022-10-04",
+        "author": "@TheTechromancer",
+    }
+    options = {"limit": 1000}
+    options_desc = {
+        "limit": "Limit the number of subdomains returned per query (increasing this may slow the scan due to garbage results from this API)"
+    }
+
+    base_url = "https://jldc.me/anubis/subdomains"
+    dns_abort_depth = 5
+
+    async def request_url(self, query):
+        url = f"{self.base_url}/{self.helpers.quote(query)}"
+        return await self.api_request(url)
+
+    def abort_if_pre(self, hostname):
+        """Discard results longer than 5 segments (e.g. a.b.c.d.evilcorp.com)."""
+        dns_depth = hostname.count(".") + 1
+        if dns_depth > self.dns_abort_depth:
+            return True
+        return False
+
+    async def abort_if(self, event):
+        # abort if dns name is unresolved
+        if event.type == "DNS_NAME_UNRESOLVED":
+            return True, "DNS name is unresolved"
+        return await super().abort_if(event)
+
+    async def parse_results(self, r, query):
+        results = set()
+        json = r.json()
+        if json:
+            for hostname in json:
+                hostname = str(hostname).lower()
+                in_scope = hostname.endswith(f".{query}")
+                is_ptr = self.helpers.is_ptr(hostname)
+                too_long = self.abort_if_pre(hostname)
+                if in_scope and not is_ptr and not too_long:
+                    results.add(hostname)
+        return sorted(results)[: self.config.get("limit", 1000)]
+```
+
+A simpler example that does everything from scratch — using `BaseModule` directly — is the `whois` module:
+
+```python title="bbot/modules/whois.py"
+from bbot.modules.base import BaseModule
+
+
+class whois(BaseModule):
+    watched_events = ["DNS_NAME"]
+    produced_events = ["WHOIS"]
+    flags = ["passive", "safe"]
+    meta = {"description": "Query WhoisXMLAPI for WHOIS data"}
+    options = {"api_key": ""}
+    options_desc = {"api_key": "WhoisXMLAPI Key"}
+    per_domain_only = True  # only run once per domain
+
+    base_url = "https://www.whoisxmlapi.com/whoisserver/WhoisService"
+
+    async def setup(self):
+        self.api_key = self.config.get("api_key")
+        if not self.api_key:
+            return None, "Must set API key"
+
+    async def handle_event(self, event):
+        self.hugesuccess(f"Got {event} (event.data: {event.data})")
+        _, domain = self.helpers.split_domain(event.data)
+        url = f"{self.base_url}?apiKey={self.api_key}&domainName={domain}&outputFormat=JSON"
+        self.hugeinfo(f"Visiting {url}")
+        response = await self.helpers.request(url)
+        if response is not None:
+            await self.emit_event(response.json(), "WHOIS", parent=event)
+```
+
+## Module attributes
+
+### watched_events and produced_events
+
+`watched_events` declares which event types trigger your module. `produced_events` declares which types it outputs. Both are lists of strings.
+
+```python
+watched_events = ["DNS_NAME", "IP_ADDRESS"]
+produced_events = ["OPEN_TCP_PORT"]
+```
+
+### flags
+
+Every module must have **at least one** from each pair:
+
+| Pair | Values |
+|------|--------|
+| Interaction | `passive`, `active` |
+| Risk | `safe`, `aggressive` |
+
+Beyond those required flags, you can add **category flags** to make your module discoverable via `--flags`:
+
+| Flag | Meaning |
+|------|---------|
+| `subdomain-enum` | Finds subdomains |
+| `web-basic` | Standard web probing |
+| `web-thorough` | Deep or slow web checks |
+| `cloud-enum` | Cloud asset discovery |
+| `social-enum` | Social media enumeration |
+| `email-enum` | Email address discovery |
+| `portscan` | Network port scanning |
+| `service-enum` | Service fingerprinting |
+| `code-enum` | Code repository enumeration |
+| `deadly` | Can cause damage or data loss |
+| `slow` | Takes a long time to run |
+
+### meta
+
+`meta` holds a description and optional authentication flag:
+
+```python
+meta = {
+    "description": "Query AnubisDB for subdomains",
+    "auth_required": True,   # set True if an API key is required
+}
+```
+
+### options and options_desc
+
+Declare config options your module accepts. Users can override them via `-c` or in `bbot.yml`:
+
+```python
+options = {
+    "api_key": "",
+    "timeout": 10,
+    "top_ports": 100,
+}
+options_desc = {
+    "api_key": "Your API key",
+    "timeout": "Request timeout in seconds",
+    "top_ports": "Number of top ports to scan",
+}
+```
+
+Read options inside your module with `self.config.get()`:
+
+```python
+async def setup(self):
+    self.api_key = self.config.get("api_key", "")
+    self.timeout = self.config.get("timeout", 10)
+    return True
+```
+
+Pass overrides at the command line:
+
+```bash
+bbot -m mymodule -c modules.mymodule.timeout=30
+```
+
+Or in `~/.config/bbot/bbot.yml`:
+
+```yaml title="~/.config/bbot/bbot.yml"
+modules:
+  mymodule:
+    timeout: 30
+```
+
+### Deduplication and scope attributes
+
+| Attribute | Default | Description |
+|-----------|---------|-------------|
+| `per_domain_only` | `False` | Run once per root domain |
+| `per_host_only` | `False` | Run once per host |
+| `per_hostport_only` | `False` | Run once per host:port |
+| `accept_dupes` | `False` | Accept duplicate incoming events |
+| `suppress_dupes` | `True` | Suppress duplicate outgoing events |
+| `in_scope_only` | `False` | Only accept in-scope events |
+| `target_only` | `False` | Only accept initial target events |
+| `scope_distance_modifier` | `0` | Expand accepted scope distance by N |
+
+## Key methods
+
+### setup()
+
+Runs once at scan start. Use it to validate config, set up clients, or fetch resources:
+
+```python
+async def setup(self):
+    self.api_key = self.config.get("api_key", "")
+    if not self.api_key:
+        # soft-fail: scan continues but this module is disabled
+        return None, "No API key specified"
+    # hard-fail would abort the entire scan:
+    # return False, "Critical setup error"
+    return True
+```
+
+Return values:
+
+| Return | Meaning |
+|--------|---------|
+| `True` | Setup succeeded |
+| `None, "reason"` | Soft-fail — module disabled, scan continues |
+| `False, "reason"` | Hard-fail — scan aborts |
+
+### setup_deps()
+
+Reserved for downloading or installing static dependencies (e.g. wordlists, AI models) that are not covered by Ansible:
+
+```python
+async def setup_deps(self):
+    self.wordlist = await self.helpers.wordlist(
+        "https://raw.githubusercontent.com/user/wordlist.txt"
+    )
+    return True
+```
+
+### handle_event(event)
+
+Called for every event matching `watched_events`. Override this for single-event processing:
+
+```python
+async def handle_event(self, event):
+    domain = event.data
+    response = await self.helpers.request(f"https://api.example.com/{domain}")
+    if response and response.status_code == 200:
+        for subdomain in response.json().get("subdomains", []):
+            await self.emit_event(subdomain, "DNS_NAME", parent=event)
+```
+
+### handle_batch(*events)
+
+Called when `batch_size > 1`. Override this to process events in bulk:
+
+```python
+_batch_size = 500
+
+async def handle_batch(self, *events):
+    for event in events:
+        self.verbose(f"Processing {event.data}")
+```
+
+### filter_event(event)
+
+Called before `handle_event()`. Return `False, "reason"` to skip an event:
+
+```python
+async def filter_event(self, event):
+    if "unresolved" in event.tags:
+        return False, "skipping unresolved host"
+    return True
+```
+
+### finish()
+
+Called when the scan is nearly complete. Use it for final processing, such as running an attack after you've built a full word cloud:
+
+```python
+async def finish(self):
+    self.info("Running final sweep...")
+    await self.emit_event("summary.txt", "FILESYSTEM", parent=self.scan.root_event)
+```
+
+<Warning>
+`finish()` may be called more than once because emitting events can re-trigger the finish phase. Write it defensively if that matters.
+</Warning>
+
+### cleanup()
+
+Called once at the very end. Use it to release resources, close connections, etc. Cannot emit events:
+
+```python
+async def cleanup(self):
+    if hasattr(self, "client"):
+        await self.client.aclose()
+```
+
+## Emitting events
+
+Use `self.emit_event()` to output data from your module:
+
+```python
+# emit a DNS name
+await self.emit_event("sub.evilcorp.com", "DNS_NAME", parent=event)
+
+# emit a URL
+await self.emit_event("https://sub.evilcorp.com/admin", "URL_UNVERIFIED", parent=event)
+
+# emit a finding
+await self.emit_event(
+    {"host": str(event.host), "description": "Open redirect found"},
+    "FINDING",
+    parent=event,
+)
+
+# emit a vulnerability
+await self.emit_event(
+    {
+        "host": str(event.host),
+        "severity": "HIGH",
+        "description": "SQL injection in /search",
+        "url": event.data,
+    },
+    "VULNERABILITY",
+    parent=event,
+)
+```
+
+Always pass `parent=event` so BBOT can trace the event lineage through the graph.
+
+## Event types cheat sheet
+
+| Type | Data format | Description |
+|------|-------------|-------------|
+| `DNS_NAME` | `str` | A hostname, e.g. `sub.evilcorp.com` |
+| `IP_ADDRESS` | `str` | An IPv4/v6 address |
+| `IP_RANGE` | `str` | CIDR range, e.g. `1.2.3.0/24` |
+| `OPEN_TCP_PORT` | `str` | `host:port`, e.g. `evilcorp.com:443` |
+| `URL` | `str` | A verified URL |
+| `URL_UNVERIFIED` | `str` | A URL that hasn't been visited yet |
+| `HTTP_RESPONSE` | `dict` | Full HTTP response object |
+| `EMAIL_ADDRESS` | `str` | An email address |
+| `SOCIAL` | `dict` | Social media profile |
+| `TECHNOLOGY` | `dict` | Detected technology on a host |
+| `FINDING` | `dict` | A notable finding (non-vuln) |
+| `VULNERABILITY` | `dict` | A confirmed vulnerability |
+| `STORAGE_BUCKET` | `dict` | Cloud storage bucket |
+| `ORG_STUB` | `str` | Organization name or abbreviation |
+
+## Making HTTP requests
+
+Use `self.helpers.request()` for simple requests, or `self.api_request()` when your module uses an API key (it handles retries and error tracking automatically):
+
+```python
+# simple GET request
+response = await self.helpers.request("https://api.example.com/data")
+if response is not None:
+    data = response.json()
+
+# POST with JSON body
+response = await self.helpers.request(
+    "https://api.example.com/query",
+    method="POST",
+    json={"domain": event.data},
+)
+
+# api_request() — retries on failure, tracks error count
+response = await self.api_request(f"https://api.example.com/{event.data}")
+```
+
+<Note>
+`self.helpers.request()` returns `None` on connection errors rather than raising an exception. Always check for `None` before accessing the response.
+</Note>
+
+## Module dependencies
+
+BBOT installs module dependencies automatically using **Ansible**. Declare them as class attributes:
+
+```python
+class mymodule(BaseModule):
+    deps_pip = ["httpx", "beautifulsoup4"]  # pip packages
+    deps_apt = ["chromium-browser"]          # apt packages
+    deps_shell = ["curl -sL https://example.com/install.sh | bash"]  # shell commands
+    deps_ansible = [                         # full Ansible tasks
+        {
+            "name": "Download massdns source code",
+            "git": {
+                "repo": "https://github.com/blechschmidt/massdns.git",
+                "dest": "#{BBOT_TEMP}/massdns",
+                "single_branch": True,
+                "version": "master",
+            },
+        },
+        {
+            "name": "Build massdns",
+            "command": {
+                "chdir": "#{BBOT_TEMP}/massdns",
+                "cmd": "make",
+                "creates": "#{BBOT_TEMP}/massdns/bin/massdns",
+            },
+        },
+        {
+            "name": "Install massdns",
+            "copy": {
+                "src": "#{BBOT_TEMP}/massdns/bin/massdns",
+                "dest": "#{BBOT_TOOLS}/",
+                "mode": "u+x,g+x,o+x",
+            },
+        },
+    ]
+```
+
+BBOT provides these template variables in Ansible tasks:
+
+| Variable | Meaning |
+|----------|---------|
+| `#{BBOT_TEMP}` | Temporary working directory |
+| `#{BBOT_TOOLS}` | Directory on `$PATH` for installed binaries |
+
+## Logging
+
+BBOT provides colorful logging helpers for debugging:
+
+```python
+self.critical("bright red — always shown")
+self.hugesuccess("bright green")
+self.hugewarning("bright orange")
+self.hugeinfo("bright blue")
+self.error("red")
+self.warning("orange")
+self.info("blue")
+self.verbose("grey (requires -v)")
+self.debug("grey (requires -d)")
+```
+
+## Load modules from custom locations
+
+You don't have to place your module inside the BBOT install directory. Add its parent folder to `module_dirs` in a preset:
+
+```yaml title="my_preset.yml"
+module_dirs:
+  - /home/user/my_modules
+```
+
+Then run with that preset:
+
+```bash
+bbot -t evilcorp.com -p my_preset.yml -m mymodule
+```
+
+## Test your module
+
+After writing your module, run a quick live test:
+
+```bash
+bbot -t evilcorp.com -m mymodule -d
+```
+
+The `-d` flag enables debug output so you can see exactly what your module is doing.
+
+For writing proper unit tests, see [Unit Tests](/dev/tests).

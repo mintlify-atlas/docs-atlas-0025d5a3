@@ -1,0 +1,238 @@
+---
+title: "Target"
+description: "BBOTTarget holds a scan's seeds, whitelist, and blacklist. Use it to perform fast in-scope checks against any host, URL, IP, or event."
+---
+
+## Overview
+
+A BBOT scan has three related target objects:
+
+- **Seeds** — the initial targets you passed to `Scanner` or `Preset`.
+- **Whitelist** — hosts allowed in scan output (defaults to the same as seeds).
+- **Blacklist** — hosts that are never touched (takes ultimate precedence).
+
+These three objects live on the `BBOTTarget` class, accessible at `scan.target` (or `preset.target` after baking).
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner(
+    "evilcorp.com",
+    "1.2.3.0/24",
+    whitelist=["evilcorp.com"],
+    blacklist=["prod.evilcorp.com"],
+)
+# target is available after the preset is baked (i.e. after Scanner.__init__)
+target = scan.target
+```
+
+## BBOTTarget
+
+`BBOTTarget` is the high-level abstraction. It wraps all three sub-targets and exposes scope-check methods.
+
+### Constructor
+
+```python
+BBOTTarget(
+    *seeds,
+    whitelist=None,
+    blacklist=None,
+    strict_scope=False,
+)
+```
+
+<ParamField path="*seeds" type="str">
+  Initial target strings. Accepts hostnames, IPs, CIDRs, URLs, emails, and open ports.
+</ParamField>
+
+<ParamField path="whitelist" type="list[str]" optional>
+  Whitelisted hosts. Defaults to the same as `seeds` when not provided.
+</ParamField>
+
+<ParamField path="blacklist" type="list[str]" optional>
+  Blacklisted hosts.
+</ParamField>
+
+<ParamField path="strict_scope" type="bool" default="False">
+  When `True`, only exact host matches pass the whitelist check. Subdomains of whitelisted hosts are not automatically included.
+</ParamField>
+
+### Attributes
+
+<ResponseField name="seeds" type="ScanSeeds">
+  The initial seed events.
+</ResponseField>
+
+<ResponseField name="whitelist" type="ScanWhitelist">
+  The whitelist target.
+</ResponseField>
+
+<ResponseField name="blacklist" type="ScanBlacklist">
+  The blacklist target.
+</ResponseField>
+
+<ResponseField name="strict_scope" type="bool">
+  Whether strict scope is enabled.
+</ResponseField>
+
+<ResponseField name="hash" type="bytes">
+  SHA-1 hash of the combined seeds, whitelist, and blacklist.
+</ResponseField>
+
+<ResponseField name="scope_hash" type="bytes">
+  SHA-1 hash of the whitelist and blacklist only (excludes seeds).
+</ResponseField>
+
+### Methods
+
+#### `in_scope(host)`
+
+```python
+def in_scope(host) -> bool
+```
+
+Check whether a host is in scope — i.e. whitelisted and not blacklisted. Accepts a hostname string, IP address, URL, or BBOT `Event`.
+
+```python
+scan.target.in_scope("www.evilcorp.com")    # True (subdomain of evilcorp.com)
+scan.target.in_scope("othercorp.com")        # False (not in whitelist)
+scan.target.in_scope("prod.evilcorp.com")   # False (blacklisted)
+scan.target.in_scope("http://evilcorp.com") # True (URL host is in scope)
+```
+
+---
+
+#### `whitelisted(host)`
+
+```python
+def whitelisted(host) -> bool
+```
+
+Check whether a host passes the whitelist check only (does not check the blacklist).
+
+```python
+scan.target.whitelisted("evilcorp.com")    # True
+scan.target.whitelisted("othercorp.com")   # False
+```
+
+---
+
+#### `blacklisted(host)`
+
+```python
+def blacklisted(host) -> bool
+```
+
+Check whether a host is explicitly blacklisted.
+
+```python
+scan.target.blacklisted("prod.evilcorp.com")  # True
+scan.target.blacklisted("dev.evilcorp.com")   # False
+```
+
+---
+
+#### `json` (property)
+
+Returns a JSON-serializable dictionary of the target:
+
+```json
+{
+  "seeds": ["evilcorp.com", "1.2.3.0/24"],
+  "whitelist": ["evilcorp.com"],
+  "blacklist": ["prod.evilcorp.com"],
+  "strict_scope": false,
+  "hash": "a3f5...",
+  "seed_hash": "b2e1...",
+  "whitelist_hash": "c9d4...",
+  "blacklist_hash": "d0a7...",
+  "scope_hash": "f1b8..."
+}
+```
+
+## Sub-target classes
+
+### BaseTarget
+
+All three sub-targets extend `BaseTarget`, which in turn extends `RadixTarget` for O(1) scope lookups via a radix tree.
+
+#### `get(event)`
+
+```python
+def get(event, **kwargs) -> EventSeed or None
+```
+
+Look up whether an event, host, IP, URL, or string is present in this target. Returns the matching entry or `None`.
+
+```python
+result = scan.target.seeds.get("evilcorp.com")
+```
+
+#### `add(targets)`
+
+```python
+def add(targets) -> None
+```
+
+Add one or more targets to this sub-target.
+
+### ScanSeeds
+
+Holds the initial seed events provided by the user. Unlike the whitelist and blacklist, seeds can have multiple events for the same host (e.g., both `evilcorp.com:80` and `https://evilcorp.com`).
+
+### ScanWhitelist
+
+Holds whitelisted hosts. Uses ACL mode, meaning each host is only stored once and subhosts are automatically included (unless `strict_scope=True`).
+
+### ScanBlacklist
+
+Holds blacklisted hosts. Supports both exact matches and regex patterns via the `BLACKLIST_REGEX` event type.
+
+```python
+# Blacklist a specific host
+scan.target.blacklist.add("prod.evilcorp.com")
+
+# Blacklist via regex (match anything under prod)
+scan.target.blacklist.add("REGEX:.*\.prod\.evilcorp\.com")
+```
+
+## Supported target types
+
+The following formats are accepted when seeding a scan or building a whitelist or blacklist:
+
+| Format | Example | Resulting event type |
+|---|---|---|
+| Hostname / domain | `evilcorp.com` | `DNS_NAME` |
+| Subdomain | `www.evilcorp.com` | `DNS_NAME` |
+| IPv4 address | `1.2.3.4` | `IP_ADDRESS` |
+| IPv6 address | `::1` | `IP_ADDRESS` |
+| CIDR range | `1.2.3.0/24` | `IP_RANGE` |
+| URL | `https://evilcorp.com` | `URL_UNVERIFIED` |
+| Email address | `user@evilcorp.com` | `EMAIL_ADDRESS` |
+| Open port | `evilcorp.com:443` | `OPEN_TCP_PORT` |
+
+## Usage example
+
+```python
+from bbot.scanner import Scanner
+
+scan = Scanner(
+    "evilcorp.com",
+    "evilcorp.org",
+    "1.2.3.0/24",
+    whitelist=["evilcorp.com", "evilcorp.org"],
+    blacklist=["legacy.evilcorp.com", "1.2.3.99"],
+    presets=["subdomain-enum"],
+)
+
+target = scan.target
+
+print(target.in_scope("www.evilcorp.com"))   # True
+print(target.in_scope("1.2.3.50"))           # True (in CIDR, in whitelist)
+print(target.in_scope("1.2.3.99"))           # False (blacklisted)
+print(target.in_scope("othercorp.com"))      # False (not in whitelist)
+
+for event in scan.start():
+    if target.in_scope(event):
+        print(f"In-scope: {event}")
+```

@@ -1,0 +1,445 @@
+---
+title: "Presets"
+description: "Bundle scan settings into reusable YAML files. Use built-in presets or create your own with custom modules, flags, and config options."
+---
+
+Once you start customizing BBOT, your commands can get long. Presets let you put all your scan settings in a single YAML file and reference it with `-p`:
+
+```bash
+bbot -p ./my_preset.yml
+```
+
+A preset can include targets, modules, flags, output modules, blacklists, and config options like API keys.
+
+---
+
+## Using presets
+
+BBOT ships with a ready-made collection of presets for common tasks. They live in `~/.bbot/presets`.
+
+```bash
+# list available presets
+bbot -lp
+
+# run subdomain enumeration
+bbot -t evilcorp.com -p subdomain-enum
+
+# combine multiple presets
+bbot -t evilcorp.com -p subdomain-enum spider
+
+# start with a preset but only enable passive modules
+bbot -t evilcorp.com -p subdomain-enum -rf passive
+
+# preset with a config override
+bbot -t www.evilcorp.com -p spider -c web.spider_distance=10
+```
+
+---
+
+## Writing a custom preset
+
+A preset is a YAML file. Here is a minimal example — the built-in `subdomain-enum` preset:
+
+```yaml title="subdomain-enum.yml"
+description: Enumerate subdomains via APIs, brute-force
+
+flags:
+  - subdomain-enum
+
+output_modules:
+  - subdomains
+```
+
+Here is a more complete custom preset that builds on two built-in presets:
+
+```yaml title="my_subdomains.yml"
+description: Subdomain enumeration + basic web scan + nuclei
+
+target:
+  - evilcorp.com
+
+include:
+  # include these built-in presets
+  - subdomain-enum
+  - web-basic
+
+modules:
+  # enable nuclei in addition to the other modules
+  - nuclei
+
+config:
+  # global config options
+  web:
+    http_proxy: http://127.0.0.1:8080
+  # module config options
+  modules:
+    securitytrails:
+      api_key: 21a270d5f59c9b05813a72bb41707266
+    virustotal:
+      # multiple API keys are allowed
+      api_key:
+        - 4f41243847da693a4f356c0486114bc6
+        - 5bc6ed268ab6488270e496d3183a1a27
+```
+
+```bash
+bbot -p ./my_subdomains.yml
+```
+
+### Preset fields
+
+| Field | Description |
+|---|---|
+| `description` | Human-readable description of what the preset does |
+| `target` | List of scan targets (same types as `-t`) |
+| `include` | Other presets to inherit from |
+| `modules` | Scan modules to enable |
+| `output_modules` | Output modules to enable |
+| `flags` | Enable all modules with these flags |
+| `exclude_modules` | Modules to disable |
+| `blacklist` | Targets to exclude from the scan |
+| `config` | Config options (API keys, module settings, etc.) |
+| `conditions` | Custom Jinja conditions evaluated before the scan starts |
+| `module_dirs` | Additional directories to load custom modules from |
+
+---
+
+## Preset inheritance
+
+Use the `include` key to build on existing presets:
+
+```yaml title="my_thorough_scan.yml"
+description: Full enumeration with screenshots
+
+include:
+  - subdomain-enum
+  - web-basic
+  - web-screenshots
+```
+
+### Load order matters
+
+When you enable multiple presets, the **last one wins** in case of a conflict. For example, if `my_spider.yml` sets `web.spider_distance` to 1:
+
+```yaml title="my_spider.yml"
+config:
+  web:
+    spider_distance: 1
+```
+
+Then running:
+
+```bash
+# spider preset wins — overrides my_spider.yml
+bbot -t evilcorp.com -p ./my_spider.yml spider
+```
+
+...means `spider` (loaded last) overrides `my_spider.yml`. Reverse the order to keep your value:
+
+```bash
+# my_spider.yml wins — loaded last
+bbot -t evilcorp.com -p spider ./my_spider.yml
+```
+
+---
+
+## Validating a preset
+
+To confirm BBOT is configured the way you expect before running a scan:
+
+```bash
+# show the final merged preset that would be used
+bbot -p ./my_preset.yml --current-preset
+
+# show the full preset including all defaults
+bbot -p ./my_preset.yml --current-preset-full
+```
+
+---
+
+## Advanced preset features
+
+### Custom modules
+
+Load a custom `.py` module from a local directory:
+
+```yaml title="custom_modules.yml"
+# load extra BBOT modules from this location
+module_dirs:
+  - /home/user/custom_modules
+```
+
+### Environment variable substitution
+
+Reference environment variables in your preset with `${env:<variable>}`:
+
+```yaml title="my_nuclei.yml"
+description: Nuclei scan with runtime template selection
+
+target:
+  - evilcorp.com
+
+modules:
+  - nuclei
+
+config:
+  modules:
+    nuclei:
+      tags: ${env:NUCLEI_TAGS}
+```
+
+```bash
+NUCLEI_TAGS=apache,nginx bbot -p ./my_nuclei.yml
+```
+
+### Conditions
+
+Add custom pre-scan logic with `conditions`. These use [Jinja](https://palletsprojects.com/p/jinja/) and run in a sandboxed environment:
+
+```yaml title="abort_if_missing.yml"
+description: Abort if nuclei templates aren't set
+
+modules:
+  - nuclei
+
+conditions:
+  - |
+    {% if not config.modules.nuclei.templates %}
+      {{ abort("Don't forget to set your templates!") }}
+    {% endif %}
+```
+
+```yaml title="disable_ffuf_with_spider.yml"
+description: Warn and disable ffuf when the spider is enabled
+
+modules:
+  - ffuf
+
+conditions:
+  - |
+    {% if config.web.spider_distance > 0 and config.web.spider_depth > 0 %}
+      {{ warn("Disabling ffuf because the web spider is enabled") }}
+      {{ preset.exclude_module("ffuf") }}
+    {% endif %}
+```
+
+Available variables in conditions:
+
+| Variable | Description |
+|---|---|
+| `preset` | The current preset object |
+| `config` | Alias for `preset.config` |
+| `warn(message)` | Display a warning to the user |
+| `abort(message)` | Abort the scan with an optional message |
+
+---
+
+## Built-in presets
+
+### Core presets
+
+<CardGroup cols={2}>
+  <Card title="subdomain-enum" icon="globe">
+    Enumerate subdomains via APIs and brute-force. Enables 51 modules and outputs unique subdomains to a TXT file.
+  </Card>
+  <Card title="web-basic" icon="browser">
+    Quick web scan. Checks for secrets, misconfigurations, cloud buckets, GraphQL, Git repos, and more (18 modules).
+  </Card>
+  <Card title="web-thorough" icon="shield-check">
+    Aggressive web scan. Builds on `web-basic` and adds bypass testing, parameter mining, SSRF, smuggling, and more (32 modules).
+  </Card>
+  <Card title="spider" icon="spider">
+    Recursive web spider using `httpx`. Follows up to 2 links deep, max 4 directory levels, 25 links per page.
+  </Card>
+  <Card title="spider-intense" icon="spider-web">
+    More aggressive web spider — 4 links deep, 6 directory levels, 50 links per page. Builds on `spider`.
+  </Card>
+  <Card title="cloud-enum" icon="cloud">
+    Enumerates cloud resources: storage buckets, Azure tenants, and more. Builds on `subdomain-enum` (58 modules).
+  </Card>
+  <Card title="email-enum" icon="envelope">
+    Enumerates email addresses via APIs, PGP, DNS records, web crawling, and more (8 modules).
+  </Card>
+  <Card title="code-enum" icon="code">
+    Enumerates Git repositories, Docker images, GitHub/GitLab orgs, Postman workspaces, and more (20 modules).
+  </Card>
+  <Card title="kitchen-sink" icon="kitchen-set">
+    Everything everywhere all at once. Combines all core presets (90 modules).
+  </Card>
+  <Card title="fast" icon="bolt">
+    Scan only the provided targets as fast as possible — no extra discovery, strict scope, minimal DNS.
+  </Card>
+</CardGroup>
+
+### Web-specific presets
+
+| Preset | Description | Modules |
+|---|---|---|
+| `dirbust-light` | Basic directory brute-force (surface level only) | 4 |
+| `dirbust-heavy` | Recursive directory brute-force (aggressive) | 5 |
+| `paramminer` | Discover web parameters via brute-force | 6 |
+| `iis-shortnames` | Recursively enumerate IIS shortnames | 3 |
+| `dotnet-audit` | Comprehensive IIS/.NET module scan | 9 |
+| `web-screenshots` | Take screenshots of web pages via gowitness | 3 |
+| `tech-detect` | Detect technologies via Nuclei and FingerprintX | 3 |
+| `baddns-intense` | Run all BadDNS modules and submodules | 4 |
+
+### Lightfuzz presets
+
+| Preset | Description |
+|---|---|
+| `lightfuzz-light` | Path, SQLi, XSS only; no POST requests; safest to combine with larger scans |
+| `lightfuzz-medium` | All lightfuzz modules; no POST requests (recommended starting point) |
+| `lightfuzz-heavy` | All modules including POST; adds paramminer for parameter discovery |
+| `lightfuzz-superheavy` | Most intense; tests each unique parameter-value individually |
+| `lightfuzz-xss` | GET-based XSS only |
+
+### Nuclei presets
+
+| Preset | Description |
+|---|---|
+| `nuclei` | Run nuclei against all discovered targets (directory-only mode) |
+| `nuclei-budget` | Nuclei in budget mode — low request count, good for quick wins |
+| `nuclei-intense` | Nuclei against ALL URLs; best combined with `spider` |
+| `nuclei-technology` | Nuclei templates matched to detected technologies |
+
+---
+
+## Preset YAML reference
+
+<AccordionGroup>
+  <Accordion title="subdomain-enum.yml">
+    ```yaml title="~/.bbot/presets/subdomain-enum.yml"
+    description: Enumerate subdomains via APIs, brute-force
+
+    flags:
+      # enable every module with the subdomain-enum flag
+      - subdomain-enum
+
+    output_modules:
+      # output unique subdomains to TXT file
+      - subdomains
+
+    config:
+      dns:
+        threads: 25
+        brute_threads: 1000
+      # put your API keys here
+      # modules:
+      #   github:
+      #     api_key: ""
+      #   chaos:
+      #     api_key: ""
+      #   securitytrails:
+      #     api_key: ""
+    ```
+  </Accordion>
+  <Accordion title="web-basic.yml">
+    ```yaml title="~/.bbot/presets/web-basic.yml"
+    description: Quick web scan
+
+    include:
+      - iis-shortnames
+
+    flags:
+      - web-basic
+    ```
+  </Accordion>
+  <Accordion title="web-thorough.yml">
+    ```yaml title="~/.bbot/presets/web-thorough.yml"
+    description: Aggressive web scan
+
+    include:
+      # include the web-basic preset
+      - web-basic
+
+    flags:
+      - web-thorough
+    ```
+  </Accordion>
+  <Accordion title="spider.yml">
+    ```yaml title="~/.bbot/presets/spider.yml"
+    description: Recursive web spider
+
+    modules:
+      - httpx
+
+    blacklist:
+      # Prevent spider from invalidating sessions by logging out
+      - "RE:/.*(sign|log)[_-]?out"
+
+    config:
+      web:
+        # how many links to follow in a row
+        spider_distance: 2
+        # don't follow links whose directory depth is higher than 4
+        spider_depth: 4
+        # maximum number of links to follow per page
+        spider_links_per_page: 25
+    ```
+  </Accordion>
+  <Accordion title="cloud-enum.yml">
+    ```yaml title="~/.bbot/presets/cloud-enum.yml"
+    description: Enumerate cloud resources such as storage buckets, etc.
+
+    include:
+      - subdomain-enum
+
+    flags:
+      - cloud-enum
+    ```
+  </Accordion>
+  <Accordion title="email-enum.yml">
+    ```yaml title="~/.bbot/presets/email-enum.yml"
+    description: Enumerate email addresses from APIs, web crawling, etc.
+
+    flags:
+      - email-enum
+
+    output_modules:
+      - emails
+    ```
+  </Accordion>
+  <Accordion title="kitchen-sink.yml">
+    ```yaml title="~/.bbot/presets/kitchen-sink.yml"
+    description: Everything everywhere all at once
+
+    include:
+      - subdomain-enum
+      - cloud-enum
+      - code-enum
+      - email-enum
+      - spider
+      - web-basic
+      - paramminer
+      - dirbust-light
+      - web-screenshots
+      - baddns-intense
+
+    config:
+      modules:
+        baddns:
+          enable_references: True
+    ```
+  </Accordion>
+  <Accordion title="fast.yml">
+    ```yaml title="~/.bbot/presets/fast.yml"
+    description: Scan only the provided targets as fast as possible - no extra discovery
+
+    exclude_modules:
+      - excavate
+
+    config:
+      # only scan the exact targets specified
+      scope:
+        strict: true
+      # speed up dns resolution by doing A/AAAA only - not MX/NS/SRV/etc
+      dns:
+        minimal: true
+      # essential speculation only
+      modules:
+        speculate:
+          essential_only: true
+    ```
+  </Accordion>
+</AccordionGroup>
